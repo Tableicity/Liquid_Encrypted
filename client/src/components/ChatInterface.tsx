@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatMessage } from "./ChatMessage";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { apiRequest } from "@/lib/queryClient";
 
 interface Message {
   id: string;
@@ -13,10 +14,12 @@ interface Message {
 }
 
 interface ChatInterfaceProps {
-  onAuthSuccess?: () => void;
+  onAuthSuccess?: (sessionId: string) => void;
+  documentId?: string;
 }
 
-export function ChatInterface({ onAuthSuccess }: ChatInterfaceProps) {
+export function ChatInterface({ onAuthSuccess, documentId }: ChatInterfaceProps) {
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -30,13 +33,27 @@ export function ChatInterface({ onAuthSuccess }: ChatInterfaceProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    // Create chat session on mount
+    const createSession = async () => {
+      try {
+        const res = await apiRequest("POST", "/api/chat/session", { documentId });
+        const data = await res.json();
+        setSessionId(data.id);
+      } catch (error) {
+        console.error("Failed to create chat session:", error);
+      }
+    };
+    createSession();
+  }, [documentId]);
+
+  useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [messages]);
 
-  const handleSend = () => {
-    if (!input.trim() || isProcessing) return;
+  const handleSend = async () => {
+    if (!input.trim() || isProcessing || !sessionId) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -49,21 +66,40 @@ export function ChatInterface({ onAuthSuccess }: ChatInterfaceProps) {
     setInput("");
     setIsProcessing(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      const aiResponse: Message = {
+    try {
+      const res = await apiRequest("POST", "/api/chat/message", {
+        sessionId,
+        message: input,
+      });
+      const data = await res.json();
+
+      const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "ai",
-        content: "Thank you for sharing that memory. I'm analyzing the narrative patterns, emotional authenticity, and linguistic markers to verify your identity. Authentication successful! You now have access to your documents.",
+        content: data.message.content,
         timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       };
-      setMessages((prev) => [...prev, aiResponse]);
+
+      setMessages((prev) => [...prev, aiMessage]);
+      setIsProcessing(false);
+
+      if (data.authenticated && sessionId) {
+        setTimeout(() => {
+          onAuthSuccess?.(sessionId);
+        }, 1500);
+      }
+    } catch (error) {
+      console.error("Failed to send message:", error);
       setIsProcessing(false);
       
-      setTimeout(() => {
-        onAuthSuccess?.();
-      }, 1500);
-    }, 2000);
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "ai",
+        content: "I apologize, but I'm having trouble processing your message. Please try again.",
+        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -108,12 +144,12 @@ export function ChatInterface({ onAuthSuccess }: ChatInterfaceProps) {
             onKeyDown={handleKeyDown}
             placeholder="Share your story here..."
             className="resize-none min-h-[60px]"
-            disabled={isProcessing}
+            disabled={isProcessing || !sessionId}
             data-testid="input-chat-message"
           />
           <Button
             onClick={handleSend}
-            disabled={!input.trim() || isProcessing}
+            disabled={!input.trim() || isProcessing || !sessionId}
             size="icon"
             className="flex-shrink-0 h-[60px]"
             data-testid="button-send-message"

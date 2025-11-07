@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
 import { FileUploadZone } from "@/components/FileUploadZone";
 import { FragmentVisualization } from "@/components/FragmentVisualization";
 import { ChatInterface } from "@/components/ChatInterface";
@@ -6,6 +7,8 @@ import { Card, CardHeader, CardContent } from "@/components/ui/card";
 import { CheckCircle2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import { useToast } from "@/hooks/use-toast";
+import { apiRequest } from "@/lib/queryClient";
 
 interface UploadProps {
   onNavigate: (page: "dashboard" | "documents") => void;
@@ -17,30 +20,60 @@ export default function Upload({ onNavigate }: UploadProps) {
   >("idle");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [progress, setProgress] = useState(0);
+  const [uploadedDocId, setUploadedDocId] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/documents/upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        throw new Error("Upload failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data: { id: string }) => {
+      setUploadedDocId(data.id);
+      setUploadState("authenticating");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Upload failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      setUploadState("idle");
+      setSelectedFile(null);
+    },
+  });
 
   const handleFileSelect = (file: File) => {
     setSelectedFile(file);
     setUploadState("uploading");
-    
+
     // Simulate upload progress
     let currentProgress = 0;
     const interval = setInterval(() => {
       currentProgress += 10;
       setProgress(currentProgress);
-      
+
       if (currentProgress >= 100) {
         clearInterval(interval);
         setTimeout(() => {
           setUploadState("liquifying");
-          setTimeout(() => {
-            setUploadState("authenticating");
-          }, 3000);
+          // Actually upload the file
+          uploadMutation.mutate(file);
         }, 500);
       }
     }, 200);
   };
 
-  const handleAuthSuccess = () => {
+  const handleAuthSuccess = (sessionId: string) => {
+    // Session authenticated, upload complete
     setUploadState("complete");
   };
 
@@ -146,6 +179,7 @@ export default function Upload({ onNavigate }: UploadProps) {
                   setUploadState("idle");
                   setSelectedFile(null);
                   setProgress(0);
+                  setUploadedDocId(null);
                 }}
                 data-testid="button-upload-another"
               >

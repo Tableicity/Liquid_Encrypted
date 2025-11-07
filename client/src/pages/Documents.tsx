@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { Search, Filter, ArrowLeft } from "lucide-react";
 import { DocumentCard } from "@/components/DocumentCard";
 import { Input } from "@/components/ui/input";
@@ -17,9 +18,32 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import type { Document } from "@shared/schema";
 
 interface DocumentsProps {
   onNavigate: (page: "dashboard") => void;
+}
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+}
+
+function formatTimestamp(iso: string): string {
+  const date = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "Just now";
+  if (diffMins < 60) return `${diffMins} min ago`;
+  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? "s" : ""} ago`;
+  return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
 }
 
 export default function Documents({ onNavigate }: DocumentsProps) {
@@ -27,50 +51,71 @@ export default function Documents({ onNavigate }: DocumentsProps) {
   const [statusFilter, setStatusFilter] = useState("all");
   const [showAuthDialog, setShowAuthDialog] = useState(false);
   const [selectedDoc, setSelectedDoc] = useState<string | null>(null);
+  const [authenticatedSessionId, setAuthenticatedSessionId] = useState<string | null>(null);
+  const { toast } = useToast();
 
-  //todo: remove mock functionality
-  const [documents] = useState([
-    {
-      id: "1",
-      name: "Financial_Report_Q4_2024.pdf",
-      status: "liquid" as const,
-      fragmentCount: 8,
-      lastAccessed: "2 hours ago",
-      size: "2.4 MB",
+  const { data: documents = [], isLoading } = useQuery<Document[]>({
+    queryKey: ["/api/documents"],
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/documents/${id}`);
+      return res.json();
     },
-    {
-      id: "2",
-      name: "Product_Specifications.docx",
-      status: "reconstituted" as const,
-      fragmentCount: 12,
-      lastAccessed: "1 day ago",
-      size: "1.8 MB",
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      toast({
+        title: "Document deleted",
+        description: "The document has been permanently removed",
+      });
     },
-    {
-      id: "3",
-      name: "Strategic_Plan_2025.pdf",
-      status: "accessible" as const,
-      fragmentCount: 6,
-      lastAccessed: "Just now",
-      size: "3.2 MB",
+    onError: (error: Error) => {
+      toast({
+        title: "Delete failed",
+        description: error.message,
+        variant: "destructive",
+      });
     },
-    {
-      id: "4",
-      name: "Research_Analysis.pdf",
-      status: "liquid" as const,
-      fragmentCount: 10,
-      lastAccessed: "3 days ago",
-      size: "4.1 MB",
+  });
+
+  const downloadMutation = useMutation({
+    mutationFn: async ({ id, sessionId }: { id: string; sessionId: string }) => {
+      const res = await apiRequest("POST", `/api/documents/${id}/reconstitute`, { sessionId });
+      return res.json();
     },
-    {
-      id: "5",
-      name: "Legal_Contract_Draft.docx",
-      status: "liquid" as const,
-      fragmentCount: 7,
-      lastAccessed: "1 week ago",
-      size: "1.2 MB",
+    onSuccess: (data: { data: string; name: string }) => {
+      // Convert base64 to blob and download
+      const byteCharacters = atob(data.data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray]);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = data.name;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      toast({
+        title: "Document downloaded",
+        description: "The document has been reconstituted and downloaded",
+      });
     },
-  ]);
+    onError: (error: Error) => {
+      toast({
+        title: "Download failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
 
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
@@ -83,10 +128,12 @@ export default function Documents({ onNavigate }: DocumentsProps) {
     setShowAuthDialog(true);
   };
 
-  const handleAuthSuccess = () => {
-    console.log("Authentication successful for document:", selectedDoc);
+  const handleAuthSuccess = (sessionId: string) => {
+    if (selectedDoc) {
+      setAuthenticatedSessionId(sessionId);
+      downloadMutation.mutate({ id: selectedDoc, sessionId });
+    }
     setShowAuthDialog(false);
-    // In real app, would show document viewer
   };
 
   return (
@@ -137,21 +184,36 @@ export default function Documents({ onNavigate }: DocumentsProps) {
       </div>
 
       {/* Documents Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filteredDocs.map((doc) => (
-          <DocumentCard
-            key={doc.id}
-            {...doc}
-            onView={() => handleView(doc.id)}
-            onDownload={() => console.log("Download", doc.id)}
-            onDelete={() => console.log("Delete", doc.id)}
-          />
-        ))}
-      </div>
-
-      {filteredDocs.length === 0 && (
+      {isLoading ? (
         <div className="text-center py-12">
-          <p className="text-muted-foreground">No documents found</p>
+          <p className="text-muted-foreground">Loading documents...</p>
+        </div>
+      ) : filteredDocs.length === 0 ? (
+        <div className="text-center py-12">
+          <p className="text-muted-foreground">
+            {documents.length === 0 ? "No documents uploaded yet" : "No documents found"}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filteredDocs.map((doc) => (
+            <DocumentCard
+              key={doc.id}
+              id={doc.id}
+              name={doc.name}
+              status={doc.status}
+              fragmentCount={doc.fragmentCount}
+              lastAccessed={doc.lastAccessed ? formatTimestamp(doc.lastAccessed) : undefined}
+              size={formatFileSize(doc.size)}
+              onView={() => handleView(doc.id)}
+              onDownload={() => handleView(doc.id)}
+              onDelete={() => {
+                if (confirm(`Are you sure you want to delete "${doc.name}"?`)) {
+                  deleteMutation.mutate(doc.id);
+                }
+              }}
+            />
+          ))}
         </div>
       )}
 
