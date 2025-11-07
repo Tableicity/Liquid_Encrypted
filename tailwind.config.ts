@@ -96,10 +96,30 @@ export default {
           from: { height: "var(--radix-accordion-content-height)" },
           to: { height: "0" },
         },
+        "fragment-disperse": {
+          "0%": { opacity: "1", transform: "scale(1)" },
+          "100%": { opacity: "0.3", transform: "scale(0.3) translate(var(--tx), var(--ty))" },
+        },
+        "fragment-converge": {
+          "0%": { opacity: "0.3", transform: "scale(0.3) translate(var(--tx), var(--ty))" },
+          "100%": { opacity: "1", transform: "scale(1)" },
+        },
+        "pulse-glow": {
+          "0%, 100%": { opacity: "1" },
+          "50%": { opacity: "0.5" },
+        },
+        "slide-in": {
+          "0%": { transform: "translateX(-100%)", opacity: "0" },
+          "100%": { transform: "translateX(0)", opacity: "1" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
+        "fragment-disperse": "fragment-disperse 0.8s ease-out forwards",
+        "fragment-converge": "fragment-converge 0.8s ease-out forwards",
+        "pulse-glow": "pulse-glow 2s ease-in-out infinite",
+        "slide-in": "slide-in 0.3s ease-out",
       },
     },
   },
