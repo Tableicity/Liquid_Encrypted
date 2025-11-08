@@ -223,6 +223,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create subscription for authenticated user (adapted from blueprint:javascript_stripe)
   app.post("/api/subscriptions/create", requireAuth, async (req, res) => {
     try {
+      // Diagnostic: Log which Stripe key is being used
+      const keyPrefix = process.env.STRIPE_SECRET_KEY?.substring(0, 7) || 'MISSING';
+      console.log(`[DEBUG /api/subscriptions/create] Stripe key prefix: ${keyPrefix}... (${process.env.STRIPE_SECRET_KEY?.length || 0} chars)`);
+      
       // @ts-ignore - userId guaranteed by requireAuth middleware
       const userId: string = req.userId;
       const { planId } = req.body;
