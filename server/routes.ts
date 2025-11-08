@@ -6,6 +6,7 @@ import jwt from "jsonwebtoken";
 import OpenAI from "openai";
 import { storage } from "./storage";
 import { liquifyDocument, reconstituteDocument } from "./liquification";
+import { StripeService, stripe } from "./stripe-service";
 import { 
   insertDocumentSchema, 
   chatMessageSchema, 
@@ -203,6 +204,107 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Logout user (client-side token removal, this endpoint for consistency)
   app.post("/api/auth/logout", (req, res) => {
     res.json({ success: true, message: "Logout successful. Remove token from client." });
+  });
+
+  // ========== Subscription Routes ==========
+  const stripeService = new StripeService(storage);
+
+  // Get all subscription plans
+  app.get("/api/subscriptions/plans", async (req, res) => {
+    try {
+      const plans = await storage.getAllSubscriptionPlans();
+      res.json(plans);
+    } catch (error) {
+      console.error("Error fetching subscription plans:", error);
+      res.status(500).json({ error: "Failed to fetch subscription plans" });
+    }
+  });
+
+  // Create subscription for authenticated user (adapted from blueprint:javascript_stripe)
+  app.post("/api/subscriptions/create", requireAuth, async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      const { planId } = req.body;
+
+      if (!planId) {
+        return res.status(400).json({ error: "Plan ID is required" });
+      }
+
+      // Create subscription
+      const { subscriptionId, clientSecret } = await stripeService.createSubscription(userId, planId);
+
+      res.json({
+        subscriptionId,
+        clientSecret,
+      });
+    } catch (error: any) {
+      console.error("Error creating subscription:", error);
+      res.status(400).json({ error: error.message || "Failed to create subscription" });
+    }
+  });
+
+  // Get current user's subscription
+  app.get("/api/subscriptions/current", requireAuth, async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      
+      const subscription = await storage.getSubscriptionByUserId(userId);
+      if (!subscription) {
+        return res.json({ subscription: null });
+      }
+
+      // Get plan details
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+
+      res.json({
+        subscription: {
+          ...subscription,
+          plan,
+        },
+      });
+    } catch (error) {
+      console.error("Error fetching subscription:", error);
+      res.status(500).json({ error: "Failed to fetch subscription" });
+    }
+  });
+
+  // Stripe webhook endpoint (adapted from blueprint:javascript_stripe)
+  app.post("/api/webhooks/stripe", async (req, res) => {
+    const sig = req.headers["stripe-signature"] as string;
+
+    if (!sig) {
+      return res.status(400).json({ error: "Missing Stripe signature" });
+    }
+
+    let event: any;
+
+    try {
+      // Verify webhook signature using raw body (captured in server/index.ts)
+      const rawBody = (req as any).rawBody;
+      if (!rawBody) {
+        throw new Error("Raw body not available for webhook verification");
+      }
+
+      event = stripe.webhooks.constructEvent(
+        rawBody,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET || ""
+      );
+    } catch (err: any) {
+      console.error("Webhook signature verification failed:", err.message);
+      return res.status(400).json({ error: `Webhook Error: ${err.message}` });
+    }
+
+    try {
+      // Handle the event
+      await stripeService.handleWebhook(event);
+      res.json({ received: true });
+    } catch (error: any) {
+      console.error("Webhook handler error:", error);
+      res.status(500).json({ error: "Webhook handler failed" });
+    }
   });
 
   // ========== Document Routes ==========
