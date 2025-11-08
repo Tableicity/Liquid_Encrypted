@@ -1,14 +1,28 @@
-import type { Document, Fragment, ChatSession, InsertDocument, InsertFragment } from "@shared/schema";
+import type { 
+  Document, Fragment, ChatSession, 
+  InsertDocument, InsertFragment,
+  User, InsertUser,
+  Subscription, InsertSubscription,
+  SubscriptionPlan,
+  StorageUsage, InsertStorageUsage,
+  Payment, InsertPayment,
+  AuditLog, InsertAuditLog
+} from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import postgres from "postgres";
-import { documents, fragments, chatSessions } from "@shared/schema";
+import { 
+  documents, fragments, chatSessions, 
+  users, subscriptions, subscriptionPlans,
+  storageUsage, payments, auditLogs
+} from "@shared/schema";
 import { randomUUID } from "crypto";
 
 export interface IStorage {
   // Document operations
   getDocument(id: string): Promise<Document | undefined>;
   getAllDocuments(): Promise<Document[]>;
+  getDocumentsByUserId(userId: string): Promise<Document[]>;
   createDocument(doc: InsertDocument): Promise<Document>;
   updateDocument(id: string, updates: Partial<Document>): Promise<Document | undefined>;
   deleteDocument(id: string): Promise<boolean>;
@@ -23,41 +37,61 @@ export interface IStorage {
   getChatSession(id: string): Promise<ChatSession | undefined>;
   createChatSession(documentId?: string): Promise<ChatSession>;
   updateChatSession(id: string, updates: Partial<ChatSession>): Promise<ChatSession | undefined>;
+
+  // User operations
+  getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getAllUsers(): Promise<User[]>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUser(id: string, updates: Partial<User>): Promise<User | undefined>;
+  deleteUser(id: string): Promise<boolean>;
+
+  // Subscription operations
+  getSubscription(id: string): Promise<Subscription | undefined>;
+  getSubscriptionByUserId(userId: string): Promise<Subscription | undefined>;
+  createSubscription(subscription: InsertSubscription): Promise<Subscription>;
+  updateSubscription(id: string, updates: Partial<Subscription>): Promise<Subscription | undefined>;
+  cancelSubscription(id: string): Promise<boolean>;
+
+  // Subscription Plan operations
+  getAllSubscriptionPlans(): Promise<SubscriptionPlan[]>;
+  getSubscriptionPlan(id: string): Promise<SubscriptionPlan | undefined>;
+  getSubscriptionPlanByType(planType: string): Promise<SubscriptionPlan | undefined>;
+
+  // Storage Usage operations
+  getStorageUsageByUserId(userId: string): Promise<StorageUsage | undefined>;
+  createStorageUsage(usage: InsertStorageUsage): Promise<StorageUsage>;
+  updateStorageUsage(userId: string, updates: Partial<StorageUsage>): Promise<StorageUsage | undefined>;
+  calculateStorageUsage(userId: string): Promise<{ usedGb: number; documentCount: number }>;
+
+  // Payment operations
+  getPayment(id: string): Promise<Payment | undefined>;
+  getPaymentsByUserId(userId: string): Promise<Payment[]>;
+  createPayment(payment: InsertPayment): Promise<Payment>;
+  updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined>;
+
+  // Audit Log operations
+  createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
+  getAuditLogsByUserId(userId: string, limit?: number): Promise<AuditLog[]>;
+  getRecentAuditLogs(limit?: number): Promise<AuditLog[]>;
 }
 
 const client = postgres(process.env.DATABASE_URL!);
 const db = drizzle(client);
 
 export class PostgresStorage implements IStorage {
+  // Document operations
   async getDocument(id: string): Promise<Document | undefined> {
     const result = await db.select().from(documents).where(eq(documents.id, id)).limit(1);
-    if (result.length === 0) return undefined;
-    
-    const doc = result[0];
-    return {
-      id: doc.id,
-      name: doc.name,
-      size: doc.size,
-      status: doc.status as "liquid" | "reconstituted" | "accessible",
-      fragmentCount: doc.fragmentCount,
-      encryptionKey: doc.encryptionKey,
-      lastAccessed: doc.lastAccessed?.toISOString(),
-      uploadedAt: doc.uploadedAt.toISOString(),
-    };
+    return result[0];
   }
 
   async getAllDocuments(): Promise<Document[]> {
-    const result = await db.select().from(documents).orderBy(documents.uploadedAt);
-    return result.map((doc) => ({
-      id: doc.id,
-      name: doc.name,
-      size: doc.size,
-      status: doc.status as "liquid" | "reconstituted" | "accessible",
-      fragmentCount: doc.fragmentCount,
-      encryptionKey: doc.encryptionKey,
-      lastAccessed: doc.lastAccessed?.toISOString(),
-      uploadedAt: doc.uploadedAt.toISOString(),
-    }));
+    return await db.select().from(documents).orderBy(desc(documents.uploadedAt));
+  }
+
+  async getDocumentsByUserId(userId: string): Promise<Document[]> {
+    return await db.select().from(documents).where(eq(documents.userId, userId)).orderBy(desc(documents.uploadedAt));
   }
 
   async createDocument(insertDoc: InsertDocument): Promise<Document> {
@@ -66,57 +100,20 @@ export class PostgresStorage implements IStorage {
       .insert(documents)
       .values({
         id,
-        name: insertDoc.name,
-        size: insertDoc.size,
-        fragmentCount: insertDoc.fragmentCount,
-        encryptionKey: insertDoc.encryptionKey,
+        ...insertDoc,
         status: "liquid",
       })
       .returning();
-
-    const doc = result[0];
-    return {
-      id: doc.id,
-      name: doc.name,
-      size: doc.size,
-      status: doc.status as "liquid" | "reconstituted" | "accessible",
-      fragmentCount: doc.fragmentCount,
-      encryptionKey: doc.encryptionKey,
-      lastAccessed: doc.lastAccessed?.toISOString(),
-      uploadedAt: doc.uploadedAt.toISOString(),
-    };
+    return result[0];
   }
 
   async updateDocument(id: string, updates: Partial<Document>): Promise<Document | undefined> {
-    const updateData: any = {};
-    if (updates.name !== undefined) updateData.name = updates.name;
-    if (updates.size !== undefined) updateData.size = updates.size;
-    if (updates.status !== undefined) updateData.status = updates.status;
-    if (updates.fragmentCount !== undefined) updateData.fragmentCount = updates.fragmentCount;
-    if (updates.encryptionKey !== undefined) updateData.encryptionKey = updates.encryptionKey;
-    if (updates.lastAccessed !== undefined) {
-      updateData.lastAccessed = new Date(updates.lastAccessed);
-    }
-
     const result = await db
       .update(documents)
-      .set(updateData)
+      .set(updates)
       .where(eq(documents.id, id))
       .returning();
-
-    if (result.length === 0) return undefined;
-
-    const doc = result[0];
-    return {
-      id: doc.id,
-      name: doc.name,
-      size: doc.size,
-      status: doc.status as "liquid" | "reconstituted" | "accessible",
-      fragmentCount: doc.fragmentCount,
-      encryptionKey: doc.encryptionKey,
-      lastAccessed: doc.lastAccessed?.toISOString(),
-      uploadedAt: doc.uploadedAt.toISOString(),
-    };
+    return result[0];
   }
 
   async deleteDocument(id: string): Promise<boolean> {
@@ -124,19 +121,18 @@ export class PostgresStorage implements IStorage {
     return result.length > 0;
   }
 
+  // Fragment operations
   async getFragment(id: string): Promise<Fragment | undefined> {
     const result = await db.select().from(fragments).where(eq(fragments.id, id)).limit(1);
-    if (result.length === 0) return undefined;
     return result[0];
   }
 
   async getFragmentsByDocumentId(documentId: string): Promise<Fragment[]> {
-    const result = await db
+    return await db
       .select()
       .from(fragments)
       .where(eq(fragments.documentId, documentId))
       .orderBy(fragments.fragmentIndex);
-    return result;
   }
 
   async createFragment(insertFragment: InsertFragment): Promise<Fragment> {
@@ -156,19 +152,10 @@ export class PostgresStorage implements IStorage {
     return result.length;
   }
 
+  // Chat session operations
   async getChatSession(id: string): Promise<ChatSession | undefined> {
     const result = await db.select().from(chatSessions).where(eq(chatSessions.id, id)).limit(1);
-    if (result.length === 0) return undefined;
-
-    const session = result[0];
-    return {
-      id: session.id,
-      documentId: session.documentId ?? undefined,
-      messages: session.messages as Array<{ role: "ai" | "user"; content: string; timestamp: string }>,
-      authenticated: session.authenticated,
-      createdAt: session.createdAt.toISOString(),
-      expiresAt: session.expiresAt?.toISOString(),
-    };
+    return result[0];
   }
 
   async createChatSession(documentId?: string): Promise<ChatSession> {
@@ -191,43 +178,211 @@ export class PostgresStorage implements IStorage {
         authenticated: false,
       })
       .returning();
-
-    const session = result[0];
-    return {
-      id: session.id,
-      documentId: session.documentId ?? undefined,
-      messages: session.messages as Array<{ role: "ai" | "user"; content: string; timestamp: string }>,
-      authenticated: session.authenticated,
-      createdAt: session.createdAt.toISOString(),
-      expiresAt: session.expiresAt?.toISOString(),
-    };
+    return result[0];
   }
 
   async updateChatSession(id: string, updates: Partial<ChatSession>): Promise<ChatSession | undefined> {
-    const updateData: any = {};
-    if (updates.messages !== undefined) updateData.messages = updates.messages;
-    if (updates.authenticated !== undefined) updateData.authenticated = updates.authenticated;
-    if (updates.expiresAt !== undefined) {
-      updateData.expiresAt = new Date(updates.expiresAt);
-    }
-
     const result = await db
       .update(chatSessions)
-      .set(updateData)
+      .set(updates)
       .where(eq(chatSessions.id, id))
       .returning();
+    return result[0];
+  }
 
-    if (result.length === 0) return undefined;
+  // User operations
+  async getUser(id: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
+    return result[0];
+  }
 
-    const session = result[0];
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    return result[0];
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const id = randomUUID();
+    const result = await db
+      .insert(users)
+      .values({
+        id,
+        ...user,
+      })
+      .returning();
+    return result[0];
+  }
+
+  async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
+    const result = await db
+      .update(users)
+      .set(updates)
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteUser(id: string): Promise<boolean> {
+    const result = await db.delete(users).where(eq(users.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Subscription operations
+  async getSubscription(id: string): Promise<Subscription | undefined> {
+    const result = await db.select().from(subscriptions).where(eq(subscriptions.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getSubscriptionByUserId(userId: string): Promise<Subscription | undefined> {
+    const result = await db.select().from(subscriptions).where(eq(subscriptions.userId, userId)).limit(1);
+    return result[0];
+  }
+
+  async createSubscription(subscription: InsertSubscription): Promise<Subscription> {
+    const id = randomUUID();
+    const result = await db
+      .insert(subscriptions)
+      .values({
+        id,
+        ...subscription,
+      })
+      .returning();
+    return result[0];
+  }
+
+  async updateSubscription(id: string, updates: Partial<Subscription>): Promise<Subscription | undefined> {
+    const result = await db
+      .update(subscriptions)
+      .set(updates)
+      .where(eq(subscriptions.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async cancelSubscription(id: string): Promise<boolean> {
+    const result = await db
+      .update(subscriptions)
+      .set({ status: "cancelled", cancelAtPeriodEnd: true })
+      .where(eq(subscriptions.id, id))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Subscription Plan operations
+  async getAllSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+    return await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.active, true));
+  }
+
+  async getSubscriptionPlan(id: string): Promise<SubscriptionPlan | undefined> {
+    const result = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getSubscriptionPlanByType(planType: string): Promise<SubscriptionPlan | undefined> {
+    const result = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.planType, planType)).limit(1);
+    return result[0];
+  }
+
+  // Storage Usage operations
+  async getStorageUsageByUserId(userId: string): Promise<StorageUsage | undefined> {
+    const result = await db.select().from(storageUsage).where(eq(storageUsage.userId, userId)).limit(1);
+    return result[0];
+  }
+
+  async createStorageUsage(usage: InsertStorageUsage): Promise<StorageUsage> {
+    const id = randomUUID();
+    const result = await db
+      .insert(storageUsage)
+      .values({
+        id,
+        ...usage,
+      })
+      .returning();
+    return result[0];
+  }
+
+  async updateStorageUsage(userId: string, updates: Partial<StorageUsage>): Promise<StorageUsage | undefined> {
+    const result = await db
+      .update(storageUsage)
+      .set(updates)
+      .where(eq(storageUsage.userId, userId))
+      .returning();
+    return result[0];
+  }
+
+  async calculateStorageUsage(userId: string): Promise<{ usedGb: number; documentCount: number }> {
+    const docs = await db.select().from(documents).where(eq(documents.userId, userId));
+    const totalBytes = docs.reduce((sum, doc) => sum + doc.size, 0);
+    const usedGb = totalBytes / (1024 * 1024 * 1024);
     return {
-      id: session.id,
-      documentId: session.documentId ?? undefined,
-      messages: session.messages as Array<{ role: "ai" | "user"; content: string; timestamp: string }>,
-      authenticated: session.authenticated,
-      createdAt: session.createdAt.toISOString(),
-      expiresAt: session.expiresAt?.toISOString(),
+      usedGb: Math.round(usedGb * 100) / 100,
+      documentCount: docs.length,
     };
+  }
+
+  // Payment operations
+  async getPayment(id: string): Promise<Payment | undefined> {
+    const result = await db.select().from(payments).where(eq(payments.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getPaymentsByUserId(userId: string): Promise<Payment[]> {
+    return await db.select().from(payments).where(eq(payments.userId, userId)).orderBy(desc(payments.createdAt));
+  }
+
+  async createPayment(payment: InsertPayment): Promise<Payment> {
+    const id = randomUUID();
+    const result = await db
+      .insert(payments)
+      .values({
+        id,
+        ...payment,
+      })
+      .returning();
+    return result[0];
+  }
+
+  async updatePayment(id: string, updates: Partial<Payment>): Promise<Payment | undefined> {
+    const result = await db
+      .update(payments)
+      .set(updates)
+      .where(eq(payments.id, id))
+      .returning();
+    return result[0];
+  }
+
+  // Audit Log operations
+  async createAuditLog(log: InsertAuditLog): Promise<AuditLog> {
+    const id = randomUUID();
+    const result = await db
+      .insert(auditLogs)
+      .values({
+        id,
+        ...log,
+      })
+      .returning();
+    return result[0];
+  }
+
+  async getAuditLogsByUserId(userId: string, limit: number = 100): Promise<AuditLog[]> {
+    return await db
+      .select()
+      .from(auditLogs)
+      .where(eq(auditLogs.userId, userId))
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
+  }
+
+  async getRecentAuditLogs(limit: number = 100): Promise<AuditLog[]> {
+    return await db
+      .select()
+      .from(auditLogs)
+      .orderBy(desc(auditLogs.createdAt))
+      .limit(limit);
   }
 }
 
