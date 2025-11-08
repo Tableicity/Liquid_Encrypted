@@ -9,7 +9,7 @@ import type {
   AuditLog, InsertAuditLog
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql as drizzleSql } from "drizzle-orm";
 import postgres from "postgres";
 import { 
   documents, fragments, chatSessions, 
@@ -63,6 +63,10 @@ export interface IStorage {
   createStorageUsage(usage: InsertStorageUsage): Promise<StorageUsage>;
   updateStorageUsage(userId: string, updates: Partial<StorageUsage>): Promise<StorageUsage | undefined>;
   calculateStorageUsage(userId: string): Promise<{ usedGb: number; documentCount: number }>;
+  // Atomic increment for upload quota enforcement
+  atomicIncrementStorageUsage(userId: string, subscriptionId: string, allocatedGb: number, fileSizeGb: number): Promise<StorageUsage>;
+  // Atomic decrement for upload rollback
+  atomicDecrementStorageUsage(userId: string, fileSizeGb: number): Promise<StorageUsage>;
 
   // Payment operations
   getPayment(id: string): Promise<Payment | undefined>;
@@ -321,6 +325,83 @@ export class PostgresStorage implements IStorage {
     return {
       usedGb: Math.round(usedGb * 100) / 100,
       documentCount: docs.length,
+    };
+  }
+
+  async atomicIncrementStorageUsage(
+    userId: string,
+    subscriptionId: string,
+    allocatedGb: number,
+    fileSizeGb: number
+  ): Promise<StorageUsage> {
+    // Single atomic UPSERT: creates record if missing, increments if exists
+    // Uses Drizzle's sql template for proper typing and parameterization
+    const id = randomUUID();
+    const fileSizeGbStr = fileSizeGb.toFixed(2);
+    
+    const result = await db.execute(drizzleSql`
+      INSERT INTO storage_usage (
+        id, user_id, subscription_id, allocated_gb, used_gb, document_count, last_calculated
+      )
+      VALUES (
+        ${id}, ${userId}, ${subscriptionId}, ${allocatedGb}, ${fileSizeGbStr}, 1, NOW()
+      )
+      ON CONFLICT (user_id) DO UPDATE SET
+        used_gb = CAST(storage_usage.used_gb AS NUMERIC) + CAST(${fileSizeGbStr} AS NUMERIC),
+        document_count = storage_usage.document_count + 1,
+        allocated_gb = GREATEST(storage_usage.allocated_gb, ${allocatedGb}),
+        last_calculated = NOW()
+      RETURNING *
+    `);
+
+    if (!result || result.length === 0) {
+      throw new Error("Failed to atomically increment storage usage");
+    }
+
+    // Convert postgres result to StorageUsage type
+    const row = result[0] as any;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      subscriptionId: row.subscription_id,
+      allocatedGb: parseInt(row.allocated_gb),
+      usedGb: row.used_gb,
+      documentCount: parseInt(row.document_count),
+      lastCalculated: row.last_calculated,
+    };
+  }
+
+  async atomicDecrementStorageUsage(
+    userId: string,
+    fileSizeGb: number
+  ): Promise<StorageUsage> {
+    // Atomic decrement for quota rollback (e.g., when upload fails after increment)
+    const fileSizeGbStr = fileSizeGb.toFixed(2);
+    
+    const result = await db.execute(drizzleSql`
+      UPDATE storage_usage 
+      SET 
+        used_gb = GREATEST(CAST(used_gb AS NUMERIC) - CAST(${fileSizeGbStr} AS NUMERIC), 0),
+        document_count = GREATEST(document_count - 1, 0),
+        last_calculated = NOW()
+      WHERE user_id = ${userId}
+      RETURNING *
+    `);
+
+    if (!result || result.length === 0) {
+      throw new Error("Failed to atomically decrement storage usage");
+    }
+
+    // Convert postgres result to StorageUsage type
+    const row = result[0] as any;
+    return {
+      id: row.id,
+      userId: row.user_id,
+      subscriptionId: row.subscription_id,
+      allocatedGb: parseInt(row.allocated_gb),
+      usedGb: row.used_gb,
+      documentCount: parseInt(row.document_count),
+      lastCalculated: row.last_calculated,
     };
   }
 

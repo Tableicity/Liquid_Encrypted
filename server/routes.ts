@@ -344,13 +344,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const fileName = req.file.originalname;
       const fileSize = req.file.size;
 
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+
+      // Check active subscription FIRST (required for all uploads)
+      const subscription = await storage.getActiveSubscriptionByUserId(userId);
+      if (!subscription) {
+        return res.status(403).json({ 
+          error: "Active subscription required",
+          message: "Please subscribe to a plan to upload documents"
+        });
+      }
+
+      // Get subscription plan to calculate quota
+      const plan = await storage.getSubscriptionPlanById(subscription.planId);
+      if (!plan) {
+        return res.status(500).json({ error: "Subscription plan not found" });
+      }
+
+      // Calculate total quota: base storage + addon storage
+      const quotaGb = plan.storageBaseGb + (subscription.storageAddonGb || 0);
+      const fileGb = fileSize / (1024 * 1024 * 1024);
+
+      // Check current storage usage
+      const currentUsage = await storage.getStorageUsageByUserId(userId);
+      const currentUsedGb = currentUsage ? parseFloat(currentUsage.usedGb) : 0;
+
+      // Enforce quota
+      if (currentUsedGb + fileGb > quotaGb) {
+        // Log quota rejection for monitoring
+        await storage.createAuditLog({
+          userId,
+          action: "quota_exceeded",
+          resourceType: "document",
+          status: "blocked",
+          details: {
+            fileName,
+            fileSize,
+            currentUsage: currentUsedGb.toFixed(2),
+            quota: quotaGb,
+            planName: plan.name,
+          }
+        });
+
+        return res.status(403).json({ 
+          error: "Storage quota exceeded",
+          details: {
+            currentUsage: currentUsedGb.toFixed(2) + " GB",
+            fileSize: fileGb.toFixed(2) + " GB",
+            quota: quotaGb + " GB",
+            planName: plan.name,
+            upgradeHint: quotaGb < 100 ? "Upgrade to Business plan for 100 GB" : null,
+          }
+        });
+      }
+
       // Create document record with user ownership
       const doc = await storage.createDocument({
         name: fileName,
         size: fileSize,
         fragmentCount: 8,
         encryptionKey: "",
-        userId: req.userId!,
+        userId: userId,
       });
 
       // Liquify the document
@@ -370,17 +425,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Failed to update document" });
       }
 
-      // Update storage usage
-      if (!req.userId) throw new Error("User ID not found");
-      // @ts-ignore - userId is guaranteed by requireAuth middleware
-      const userId: string = req.userId;
-      
-      const currentUsage = await storage.getStorageUsageByUserId(userId);
-      if (currentUsage) {
-        const usedGb = parseFloat(currentUsage.usedGb) + (fileSize / (1024 * 1024 * 1024));
-        await storage.updateStorageUsage(userId, {
-          usedGb: usedGb.toFixed(2),
-          documentCount: (currentUsage.documentCount || 0) + 1,
+      // Atomically increment storage usage and get final total
+      const updatedUsage = await storage.atomicIncrementStorageUsage(
+        userId,
+        subscription.id,
+        quotaGb,
+        fileGb
+      );
+
+      // Post-increment quota check (protects against concurrent uploads)
+      const finalUsedGb = parseFloat(updatedUsage.usedGb);
+      if (finalUsedGb > quotaGb) {
+        // Concurrent upload pushed us over quota - rollback this upload
+        await storage.deleteDocument(doc.id);
+        await storage.deleteFragmentsByDocumentId(doc.id);
+        
+        // Atomically rollback storage usage increment
+        await storage.atomicDecrementStorageUsage(userId, fileGb);
+        
+        await storage.createAuditLog({
+          userId,
+          action: "quota_exceeded_concurrent",
+          resourceType: "document",
+          status: "rolled_back",
+          details: {
+            fileName,
+            fileSize,
+            finalUsage: finalUsedGb.toFixed(2),
+            quota: quotaGb,
+            message: "Concurrent upload caused quota breach, rolled back"
+          }
+        });
+
+        return res.status(409).json({ 
+          error: "Storage quota exceeded during upload",
+          message: "Another upload completed while this was processing. Please try again.",
+          details: {
+            currentUsage: finalUsedGb.toFixed(2) + " GB",
+            quota: quotaGb + " GB",
+          }
         });
       }
 
