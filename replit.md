@@ -21,17 +21,37 @@ All core functionality is operational and tested:
 
 ## Recent Major Updates (November 2025)
 
+### Phase 1-7: Subscription & Billing System (NEW) ✅
+- **JWT Authentication**: Secure user signup/login with token-based auth
+- **3-Tier Subscription Plans**:
+  - Personal: $19.99/mo, 50 GB storage
+  - Business: $99.99/mo, 500 GB storage
+  - Enterprise: $999.99/mo, 5120 GB storage
+- **Stripe Integration**: Full payment processing with test/live key separation
+- **Payment Flow**:
+  1. User selects plan → Backend creates Stripe subscription + PaymentIntent
+  2. Frontend loads Stripe Elements with clientSecret
+  3. User enters payment details → Stripe processes
+  4. Success redirect → "Payment Successful" toast
+  5. Webhooks update subscription status to "active"
+- **Environment Configuration**:
+  - Production: `STRIPE_SECRET_KEY` (sk_live_...), `VITE_STRIPE_PUBLIC_KEY` (pk_live_...)
+  - Testing: `TESTING_STRIPE_SECRET_KEY` (sk_test_...), `TESTING_VITE_STRIPE_PUBLIC_KEY` (pk_test_...)
+- **Status**: Core subscription creation and payment collection working ✅
+- **Pending**: Webhook enhancement for auto-renewal payment method attachment
+
 ### Database Migration to PostgreSQL
 - **Previous**: In-memory storage (data lost on restart)
 - **Current**: PostgreSQL with Drizzle ORM (permanent persistence)
 - **Driver**: postgres-js (HTTP-based, no WebSocket dependency)
-- **Tables**: documents, fragments, chat_sessions
+- **Tables**: documents, fragments, chat_sessions, users, subscriptions, subscription_plans, payments, audit_logs
 - **Schema Location**: shared/schema.ts (consolidated for Drizzle CLI compatibility)
 
 ### Security Enhancements
 - Encryption keys NEVER exposed in API responses (server-side only storage)
 - Random IV generation for each encryption operation (replaces static IVs)
-- Session-based authentication with 30-minute expiration
+- Session-based authentication with 30-minute expiration (story-based)
+- JWT-based user authentication for admin console
 - Double encryption: file-level + fragment-level with derived keys
 - SHA-256 checksum validation for fragment integrity
 
@@ -39,6 +59,7 @@ All core functionality is operational and tested:
 - **Backend**: Express.js with TypeScript
 - **Database**: PostgreSQL via Drizzle ORM with postgres-js driver
 - **AI Integration**: OpenAI gpt-4o-mini for narrative authentication
+- **Payment Processing**: Stripe API for subscription billing
 - **Storage**: IStorage interface allows easy swap between implementations
 
 ## Technology Stack

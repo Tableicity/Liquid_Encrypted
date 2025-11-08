@@ -78,21 +78,28 @@ export class StripeService {
       },
     });
 
-    // Create Stripe subscription with setup intent for payment collection
+    // Create Stripe subscription with default_incomplete to collect payment upfront
+    // This creates an invoice with a PaymentIntent automatically
     const stripeSubscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: price.id }],
       payment_behavior: "default_incomplete",
-      payment_settings: { save_default_payment_method: "on_subscription" },
-      expand: ["latest_invoice.payment_intent", "pending_setup_intent"],
+      payment_settings: { 
+        save_default_payment_method: "on_subscription",
+        payment_method_types: ["card"], // Enable card payments
+      },
+      expand: ["latest_invoice.payment_intent"],
     });
 
-    // Calculate period dates - handle incomplete subscriptions
-    const currentPeriodStart = (stripeSubscription as any).current_period_start
-      ? new Date((stripeSubscription as any).current_period_start * 1000)
+    // Calculate period dates - handle incomplete subscriptions that may not have periods set yet
+    const periodStartTimestamp = (stripeSubscription as any).current_period_start;
+    const periodEndTimestamp = (stripeSubscription as any).current_period_end;
+    
+    const currentPeriodStart = periodStartTimestamp 
+      ? new Date(periodStartTimestamp * 1000)
       : new Date();
-    const currentPeriodEnd = (stripeSubscription as any).current_period_end
-      ? new Date((stripeSubscription as any).current_period_end * 1000)
+    const currentPeriodEnd = periodEndTimestamp
+      ? new Date(periodEndTimestamp * 1000)
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default to 30 days from now
 
     // Create subscription record in our database
@@ -100,7 +107,7 @@ export class StripeService {
       userId,
       planId,
       stripeSubscriptionId: stripeSubscription.id,
-      status: "pending",
+      status: "incomplete",
       currentPeriodStart,
       currentPeriodEnd,
       basePrice: plan.monthlyPrice,
@@ -108,31 +115,44 @@ export class StripeService {
       billingCycle: "monthly",
     });
 
-    // For default_incomplete subscriptions, manually create a payment intent for the invoice
-    const invoice = stripeSubscription.latest_invoice as Stripe.Invoice;
+    // Extract the invoice's PaymentIntent (created automatically by Stripe)
+    const latestInvoice = stripeSubscription.latest_invoice;
     
-    if (!invoice) {
+    if (!latestInvoice) {
       throw new Error("No invoice found for subscription");
     }
 
-    // Create a PaymentIntent for the invoice to collect payment upfront
-    const paymentIntent = await stripe.paymentIntents.create({
-      amount: invoice.amount_due,
-      currency: invoice.currency || 'usd',
-      customer: customerId,
-      metadata: {
-        subscriptionId: stripeSubscription.id,
-        invoiceId: invoice.id,
-      },
-      automatic_payment_methods: {
-        enabled: true,
-      },
-    });
+    // The invoice should have a payment_intent since we used default_incomplete with payment_method_types
+    let paymentIntent: Stripe.PaymentIntent;
+    
+    if (typeof latestInvoice === 'string') {
+      // If it's just an ID, retrieve the full invoice
+      const invoice = await stripe.invoices.retrieve(latestInvoice, {
+        expand: ['payment_intent'],
+      });
+      const pi = (invoice as any).payment_intent;
+      if (!pi) {
+        throw new Error("No payment intent found on invoice");
+      }
+      paymentIntent = typeof pi === 'string' 
+        ? await stripe.paymentIntents.retrieve(pi)
+        : pi;
+    } else {
+      // It's already an expanded invoice object
+      const pi = (latestInvoice as any).payment_intent;
+      if (!pi) {
+        throw new Error("No payment intent found on invoice");
+      }
+      paymentIntent = typeof pi === 'string'
+        ? await stripe.paymentIntents.retrieve(pi)
+        : pi;
+    }
+
+    if (!paymentIntent.client_secret) {
+      throw new Error("Payment intent has no client_secret");
+    }
 
     const clientSecret = paymentIntent.client_secret;
-    if (!clientSecret) {
-      throw new Error("Failed to create payment intent - no client_secret");
-    }
 
     // Create audit log
     await this.storage.createAuditLog({
