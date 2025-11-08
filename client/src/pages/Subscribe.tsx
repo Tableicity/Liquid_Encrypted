@@ -159,7 +159,21 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
 
-  const { data: plans, isLoading: plansLoading } = useQuery<SubscriptionPlan[]>({
+  // Check for existing subscription (don't block if this fails)
+  const { data: currentSubscription } = useQuery<{
+    subscription: {
+      status: string;
+      plan?: { name: string };
+      storageQuota: number;
+      currentPeriodEnd: string;
+    } | null;
+  }>({
+    queryKey: ["/api/subscriptions/current"],
+    retry: false,
+    staleTime: 0, // Always refetch to get latest status
+  });
+
+  const { data: plans, isLoading: plansLoading, error: plansError } = useQuery<SubscriptionPlan[]>({
     queryKey: ["/api/subscriptions/plans"],
   });
 
@@ -190,10 +204,97 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
     createSetupIntentMutation.mutate();
   };
 
+  // Show active subscription status if user already has one
+  if (currentSubscription?.subscription?.status === "active") {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <Card className="max-w-2xl w-full">
+          <CardHeader>
+            <div className="flex items-center justify-center mb-4">
+              <Check className="w-12 h-12 text-green-500" />
+            </div>
+            <CardTitle className="text-center text-2xl">Subscription Active</CardTitle>
+            <CardDescription className="text-center">
+              You already have an active subscription
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-center">
+              <p className="text-lg font-semibold">
+                {currentSubscription.subscription.plan?.name || "Current Plan"}
+              </p>
+              <p className="text-muted-foreground mt-2">
+                Storage: {currentSubscription.subscription.storageQuota} GB
+              </p>
+              <p className="text-sm text-muted-foreground mt-2">
+                Renews: {new Date(currentSubscription.subscription.currentPeriodEnd).toLocaleDateString()}
+              </p>
+            </div>
+          </CardContent>
+          <CardFooter className="flex gap-2">
+            <Button variant="outline" className="flex-1" onClick={() => window.history.back()}>
+              Go Back
+            </Button>
+            <Button className="flex-1" onClick={onSuccess}>
+              Continue to Dashboard
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
   if (plansLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Show error if plans failed to load
+  if (plansError) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <Card className="max-w-2xl w-full">
+          <CardHeader>
+            <CardTitle className="text-destructive">Failed to Load Plans</CardTitle>
+            <CardDescription>
+              Unable to fetch subscription plans. Please try again.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground">
+              Error: {plansError instanceof Error ? plansError.message : "Unknown error"}
+            </p>
+          </CardContent>
+          <CardFooter>
+            <Button onClick={() => window.location.reload()} className="w-full">
+              Reload Page
+            </Button>
+          </CardFooter>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show message if no plans available
+  if (!plans || plans.length === 0) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-8">
+        <Card className="max-w-2xl w-full">
+          <CardHeader>
+            <CardTitle>No Plans Available</CardTitle>
+            <CardDescription>
+              There are currently no subscription plans available. Please check back later.
+            </CardDescription>
+          </CardHeader>
+          <CardFooter>
+            <Button onClick={() => window.location.reload()} className="w-full">
+              Reload Page
+            </Button>
+          </CardFooter>
+        </Card>
       </div>
     );
   }
