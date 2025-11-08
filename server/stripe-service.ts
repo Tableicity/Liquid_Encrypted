@@ -41,12 +41,54 @@ export class StripeService {
   }
 
   /**
-   * Create a subscription for a user with a specific plan
+   * Create a SetupIntent for collecting payment method
+   * Step 1 of two-step subscription flow
+   */
+  async createSetupIntent(userId: string): Promise<{ clientSecret: string }> {
+    const user = await this.storage.getUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Ensure user has a Stripe customer ID
+    const customerId = await this.getOrCreateCustomer(user);
+
+    // Create SetupIntent to collect payment method
+    const setupIntent = await stripe.setupIntents.create({
+      customer: customerId,
+      payment_method_types: ["card"],
+      metadata: {
+        userId: user.id,
+      },
+    });
+
+    if (!setupIntent.client_secret) {
+      throw new Error("SetupIntent has no client_secret");
+    }
+
+    // Create audit log
+    await this.storage.createAuditLog({
+      userId,
+      action: "setup_intent_created",
+      details: `SetupIntent created for payment method collection`,
+      ipAddress: null,
+      userAgent: null,
+    });
+
+    return {
+      clientSecret: setupIntent.client_secret,
+    };
+  }
+
+  /**
+   * Create a subscription for a user with a specific plan and payment method
+   * Step 2 of two-step subscription flow (after SetupIntent completes)
    */
   async createSubscription(
     userId: string,
-    planId: string
-  ): Promise<{ subscriptionId: string; clientSecret: string }> {
+    planId: string,
+    paymentMethodId: string
+  ): Promise<{ subscriptionId: string }> {
     const user = await this.storage.getUser(userId);
     if (!user) {
       throw new Error("User not found");
@@ -66,6 +108,17 @@ export class StripeService {
       throw new Error("User already has an active subscription");
     }
 
+    // Attach payment method to customer and set as default
+    await stripe.paymentMethods.attach(paymentMethodId, {
+      customer: customerId,
+    });
+
+    await stripe.customers.update(customerId, {
+      invoice_settings: {
+        default_payment_method: paymentMethodId,
+      },
+    });
+
     // Create Stripe Price
     const price = await stripe.prices.create({
       currency: "usd",
@@ -78,81 +131,37 @@ export class StripeService {
       },
     });
 
-    // Create Stripe subscription with default_incomplete to collect payment upfront
-    // This creates an invoice with a PaymentIntent automatically
+    // Create subscription with the payment method already attached
+    // Stripe will automatically charge it and activate the subscription
     const stripeSubscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: price.id }],
-      payment_behavior: "default_incomplete",
-      payment_settings: { 
-        save_default_payment_method: "on_subscription",
-        payment_method_types: ["card"], // Enable card payments
-      },
+      default_payment_method: paymentMethodId,
       expand: ["latest_invoice.payment_intent"],
     });
 
-    // Calculate period dates - handle incomplete subscriptions that may not have periods set yet
-    const periodStartTimestamp = (stripeSubscription as any).current_period_start;
-    const periodEndTimestamp = (stripeSubscription as any).current_period_end;
+    // Calculate period dates
+    const periodStartTimestamp = stripeSubscription.current_period_start;
+    const periodEndTimestamp = stripeSubscription.current_period_end;
     
-    const currentPeriodStart = periodStartTimestamp 
-      ? new Date(periodStartTimestamp * 1000)
-      : new Date();
-    const currentPeriodEnd = periodEndTimestamp
-      ? new Date(periodEndTimestamp * 1000)
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000); // Default to 30 days from now
+    const currentPeriodStart = new Date(periodStartTimestamp * 1000);
+    const currentPeriodEnd = new Date(periodEndTimestamp * 1000);
+
+    // Determine initial status - should be "active" if payment succeeds immediately
+    const initialStatus = stripeSubscription.status === "active" ? "active" : "incomplete";
 
     // Create subscription record in our database
     await this.storage.createSubscription({
       userId,
       planId,
       stripeSubscriptionId: stripeSubscription.id,
-      status: "incomplete",
+      status: initialStatus,
       currentPeriodStart,
       currentPeriodEnd,
       basePrice: plan.monthlyPrice,
       totalPrice: plan.monthlyPrice,
       billingCycle: "monthly",
     });
-
-    // Extract the invoice's PaymentIntent (created automatically by Stripe)
-    const latestInvoice = stripeSubscription.latest_invoice;
-    
-    if (!latestInvoice) {
-      throw new Error("No invoice found for subscription");
-    }
-
-    // The invoice should have a payment_intent since we used default_incomplete with payment_method_types
-    let paymentIntent: Stripe.PaymentIntent;
-    
-    if (typeof latestInvoice === 'string') {
-      // If it's just an ID, retrieve the full invoice
-      const invoice = await stripe.invoices.retrieve(latestInvoice, {
-        expand: ['payment_intent'],
-      });
-      const pi = (invoice as any).payment_intent;
-      if (!pi) {
-        throw new Error("No payment intent found on invoice");
-      }
-      paymentIntent = typeof pi === 'string' 
-        ? await stripe.paymentIntents.retrieve(pi)
-        : pi;
-    } else {
-      // It's already an expanded invoice object
-      const pi = (latestInvoice as any).payment_intent;
-      if (!pi) {
-        throw new Error("No payment intent found on invoice");
-      }
-      paymentIntent = typeof pi === 'string'
-        ? await stripe.paymentIntents.retrieve(pi)
-        : pi;
-    }
-
-    if (!paymentIntent.client_secret) {
-      throw new Error("Payment intent has no client_secret");
-    }
-
-    const clientSecret = paymentIntent.client_secret;
 
     // Create audit log
     await this.storage.createAuditLog({
@@ -164,7 +173,6 @@ export class StripeService {
 
     return {
       subscriptionId: stripeSubscription.id,
-      clientSecret,
     };
   }
 

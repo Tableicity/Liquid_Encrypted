@@ -220,27 +220,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create subscription for authenticated user (adapted from blueprint:javascript_stripe)
-  app.post("/api/subscriptions/create", requireAuth, async (req, res) => {
+  // Create SetupIntent for collecting payment method (Step 1)
+  app.post("/api/subscriptions/setup-intent", requireAuth, async (req, res) => {
     try {
-      // Diagnostic: Log which Stripe key is being used
-      const keyPrefix = process.env.STRIPE_SECRET_KEY?.substring(0, 7) || 'MISSING';
-      console.log(`[DEBUG /api/subscriptions/create] Stripe key prefix: ${keyPrefix}... (${process.env.STRIPE_SECRET_KEY?.length || 0} chars)`);
-      
       // @ts-ignore - userId guaranteed by requireAuth middleware
       const userId: string = req.userId;
-      const { planId } = req.body;
+
+      const { clientSecret } = await stripeService.createSetupIntent(userId);
+
+      res.json({ clientSecret });
+    } catch (error: any) {
+      console.error("Error creating setup intent:", error);
+      res.status(400).json({ error: error.message || "Failed to create setup intent" });
+    }
+  });
+
+  // Create subscription with payment method (Step 2)
+  app.post("/api/subscriptions/create", requireAuth, async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      const { planId, paymentMethodId } = req.body;
 
       if (!planId) {
         return res.status(400).json({ error: "Plan ID is required" });
       }
 
-      // Create subscription
-      const { subscriptionId, clientSecret } = await stripeService.createSubscription(userId, planId);
+      if (!paymentMethodId) {
+        return res.status(400).json({ error: "Payment method ID is required" });
+      }
+
+      // Create subscription with payment method
+      const { subscriptionId } = await stripeService.createSubscription(
+        userId,
+        planId,
+        paymentMethodId
+      );
 
       res.json({
         subscriptionId,
-        clientSecret,
       });
     } catch (error: any) {
       console.error("Error creating subscription:", error);
