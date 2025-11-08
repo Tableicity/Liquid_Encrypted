@@ -1,0 +1,207 @@
+BUILD AN ADMIN CONSOLE FOR LIQUID ENCRYPTED SYSTEM
+
+CONTEXT:
+You are building an admin console for a "Liquid Encrypted" data storage system 
+where data is fragmented across distributed cloud nodes and only reconstituted 
+during authorized access. The system uses story-based authentication.
+
+REQUIREMENTS:
+
+1. AUTHENTICATION & ACCESS CONTROL
+   - Admin login (separate from user auth)
+   - Role-based access: Super Admin, Billing Admin, Support Agent
+   - Two-factor authentication (2FA) for all admin users
+   - Session timeout: 30 minutes
+   - Audit logging of all admin actions
+
+2. DASHBOARD (Homepage)
+   - Key metrics cards:
+     * Monthly Recurring Revenue (MRR)
+     * Total subscribers by plan (Personal/Business/Enterprise)
+     * Total storage allocated vs used
+     * Fragment health status
+     * Recent security alerts
+   - Real-time updates (WebSocket or polling every 30s)
+   - Date range filters (Today, Last 7 days, Last 30 days, Custom)
+
+3. SUBSCRIBER MANAGEMENT MODULE
+   - User list view with:
+     * Search by name, email, user ID
+     * Filter by plan type, status, storage usage
+     * Sort by signup date, storage usage, revenue
+     * Pagination (50 users per page)
+   - User detail view showing:
+     * Profile information
+     * Current subscription plan and billing details
+     * Storage usage (current/allocated) with visual progress bar
+     * Document count and fragment distribution status
+     * Authentication history (last 30 days)
+     * Billing history with invoice links
+   - Actions:
+     * Change subscription plan (with prorated billing calculation)
+     * Add/remove storage allocation
+     * Suspend/reactivate account
+     * Reset user password
+     * Send email notification to user
+     * Export user data (GDPR compliance)
+     * Delete account (with 30-day data retention confirmation)
+
+4. SUBSCRIPTION PLAN MANAGEMENT
+   - Three pricing tiers configuration:
+     * Personal: $19.99/month, 50GB base, $5 per 50GB add-on
+     * Business: $99.99/month, 500GB base, $4 per 50GB add-on
+     * Enterprise: Custom pricing, 5TB base, $3 per 50GB add-on
+   - Each plan includes:
+     * Monthly/annual pricing
+     * Base storage allocation
+     * Storage add-on pricing
+     * Max documents limit
+     * Max users per account
+     * Number of fragment distribution nodes
+     * Support level
+     * API access permissions
+   - Plan migration rules:
+     * Upgrade: immediate with prorated billing
+     * Downgrade: effective next billing cycle
+     * Storage reduction: 7-day grace period before enforcement
+
+5. STORAGE QUOTA MANAGEMENT
+   - Global storage overview:
+     * Total allocated capacity across all users
+     * Total used storage
+     * Storage efficiency metrics
+     * Cloud provider cost tracking
+   - Users approaching quota table (>90% usage):
+     * User identifier
+     * Current plan
+     * Usage percentage
+     * Quick action buttons (Notify user, Add storage)
+   - Storage add-on purchase tracking:
+     * Revenue from storage add-ons
+     * Conversion rate (users at quota → purchase)
+     * Most common add-on sizes
+   - Automated notifications:
+     * Email at 80% storage usage
+     * Email at 90% storage usage
+     * Upload restriction at 100% (with upgrade CTA)
+
+6. PAYMENT & BILLING MANAGEMENT
+   - Revenue dashboard:
+     * Monthly recurring revenue (MRR)
+     * Annual recurring revenue (ARR projection)
+     * Revenue breakdown (subscriptions vs add-ons)
+     * Refunds and chargebacks
+   - Upcoming charges table (next 7 days):
+     * Scheduled billing date
+     * User/company name
+     * Amount to charge
+     * Payment method status
+     * Charge status (scheduled, failed, retrying)
+   - Failed payment management:
+     * List of failed payment attempts
+     * Retry schedule
+     * Account suspension status
+     * Actions: Send payment reminder, manual retry, update payment method
+   - Invoice generation:
+     * Generate individual invoices
+     * Bulk invoice export (PDF/CSV)
+     * Tax reports (quarterly/annual)
+     * Revenue recognition reports
+
+7. FRAGMENT HEALTH MONITORING (CRITICAL FEATURE)
+   - Storage node status table:
+     * Node identifier
+     * Cloud provider (AWS, Azure, GCP, etc.)
+     * Geographic region
+     * Health status (Healthy, Degraded, Offline)
+     * Number of fragments stored
+     * Response time metrics
+   - Fragment integrity alerts:
+     * Fragments with insufficient replication
+     * Auto-healing status and progress
+     * Estimated time to resolution
+     * User impact assessment
+   - Reconstitution performance metrics:
+     * Average reconstitution time (last 24h)
+     * Slowest reconstitutions with user identification
+     * Failed reconstitution attempts
+     * Peak load times
+   - Maintenance actions:
+     * Force fragment re-balancing across nodes
+     * Test node failover scenarios
+     * Run integrity audit on all fragments
+     * Add/remove storage nodes
+
+8. SECURITY & AUTHENTICATION LOGS
+   - Authentication events (last 24h, 7d, 30d):
+     * Total authentication attempts
+     * Success vs failure rate
+     * Suspicious activity flagging
+   - Security alerts table:
+     * Timestamp
+     * User identifier
+     * Event type (failed login, unusual location, etc.)
+     * Action taken (blocked, flagged, verified)
+   - Story-based authentication analytics:
+     * Average story length and confidence scores
+     * Common failure reasons
+     * Authentication token lifetime settings
+   - Access pattern analysis:
+     * Peak login times
+     * Geographic distribution
+     * Device and browser breakdown
+   - Audit log export:
+     * CSV/JSON export options
+     * Date range selection
+     * Compliance reporting formats
+
+9. ANALYTICS & REPORTING
+   - User growth metrics:
+     * New signups (daily/weekly/monthly)
+     * Trial to paid conversion rate
+     * Churn rate
+     * Net user growth
+   - Feature usage tracking:
+     * Most used features
+     * Story authentication success rates
+     * API usage by Business tier users
+     * Mobile vs desktop usage
+   - Revenue insights:
+     * ARPU (Average Revenue Per User)
+     * LTV (Customer Lifetime Value)
+     * CAC (Customer Acquisition Cost)
+     * LTV:CAC ratio
+   - Storage economics:
+     * Average storage per user
+     * Storage add-on attach rate
+     * Cloud provider costs
+     * Storage profit margins
+
+10. TECHNICAL SPECIFICATIONS
+    - Frontend: React.js with responsive design (mobile-friendly)
+    - Backend: Node.js/Express API
+    - Database: PostgreSQL for user/subscription data
+    - Real-time updates: WebSockets for live metrics
+    - Charts: Chart.js or Recharts for visualizations
+    - Tables: DataTables or AG-Grid for sortable/filterable tables
+    - Authentication: JWT tokens with refresh mechanism
+    - Security: HTTPS only, CORS configured, SQL injection prevention
+    - Rate limiting: 100 requests per minute per admin user
+
+11. ACCESS CONTROL ROLES
+    - Super Admin: Full access to all modules
+    - Billing Admin: Access to payment, billing, and invoicing only
+    - Support Agent: Read-only access to user data, can reset passwords
+    - Auditor: Read-only access to logs and analytics
+
+12. INTEGRATION REQUIREMENTS
+    - Payment gateway: Stripe integration for subscription billing
+    - Email service: SendGrid for notifications and invoices
+    - Cloud storage APIs: AWS S3, Azure Blob, Google Cloud Storage for fragment management
+    - Logging: Integration with logging service (e.g., Loggly, Papertrail)
+
+BUILD THE ADMIN CONSOLE as a separate section of the main app, accessible at /admin route
+with proper authentication middleware. Use modern UI components (shadcn/ui or Material-UI).
+Include loading states, error handling, and success notifications for all actions.
+Ensure all data tables have export functionality (CSV/PDF).
+Make it production-ready with proper input validation and error messages.
