@@ -19,6 +19,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut, Loader2 } from "lucide-react";
 import { isAuthenticated, removeToken } from "@/lib/auth";
+import { useToast } from "@/hooks/use-toast";
 import Dashboard from "@/pages/Dashboard";
 import UploadPage from "@/pages/Upload";
 import Documents from "@/pages/Documents";
@@ -40,10 +41,28 @@ function AppContent() {
   const [authView, setAuthView] = useState<AuthView>("login");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [needsSubscription, setNeedsSubscription] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     setAuthenticated(isAuthenticated());
-  }, []);
+    
+    // Check for payment success redirect from Stripe
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('payment') === 'success' && isAuthenticated()) {
+      // Clear the query parameter
+      window.history.replaceState({}, '', window.location.pathname);
+      
+      // Show success toast
+      toast({
+        title: "Payment Successful",
+        description: "Your subscription is now active!",
+      });
+      
+      // Mark subscription as complete
+      setNeedsSubscription(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
+    }
+  }, [toast]);
 
   const { data: subscription, isLoading: subscriptionLoading } = useQuery<Subscription | null>({
     queryKey: ["/api/subscriptions/current"],
