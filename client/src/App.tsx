@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { queryClient } from "./lib/queryClient";
-import { QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/ThemeProvider";
@@ -17,7 +17,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut } from "lucide-react";
+import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut, Loader2 } from "lucide-react";
 import { isAuthenticated, removeToken } from "@/lib/auth";
 import Dashboard from "@/pages/Dashboard";
 import UploadPage from "@/pages/Upload";
@@ -25,26 +25,46 @@ import Documents from "@/pages/Documents";
 import Architecture from "@/pages/Architecture";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import Subscribe from "@/pages/Subscribe";
 
 type Page = "dashboard" | "upload" | "documents" | "architecture";
 type AuthView = "login" | "signup";
 
-function App() {
+interface Subscription {
+  id: string;
+  status: string;
+}
+
+function AppContent() {
   const [authenticated, setAuthenticated] = useState(false);
   const [authView, setAuthView] = useState<AuthView>("login");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
+  const [needsSubscription, setNeedsSubscription] = useState(false);
 
   useEffect(() => {
     setAuthenticated(isAuthenticated());
   }, []);
 
+  const { data: subscription, isLoading: subscriptionLoading } = useQuery<Subscription | null>({
+    queryKey: ["/api/subscriptions/current"],
+    enabled: authenticated,
+    retry: false,
+  });
+
   const handleLogin = () => {
     setAuthenticated(true);
+    setNeedsSubscription(true);
+  };
+
+  const handleSubscriptionComplete = () => {
+    setNeedsSubscription(false);
+    queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
   };
 
   const handleLogout = () => {
     removeToken();
     setAuthenticated(false);
+    setNeedsSubscription(false);
     queryClient.clear();
   };
 
@@ -60,88 +80,111 @@ function App() {
     "--sidebar-width-icon": "3rem",
   };
 
+  // Show loading state while checking subscription
+  if (authenticated && subscriptionLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
+  // Determine if user needs to subscribe
+  const hasActiveSubscription = subscription && subscription.status === "active";
+  const showSubscriptionPage = authenticated && (needsSubscription || !hasActiveSubscription);
+
+  return (
+    <>
+      {!authenticated ? (
+        authView === "login" ? (
+          <Login
+            onSuccess={handleLogin}
+            onSwitchToSignup={() => setAuthView("signup")}
+          />
+        ) : (
+          <Signup
+            onSuccess={handleLogin}
+            onSwitchToLogin={() => setAuthView("login")}
+          />
+        )
+      ) : showSubscriptionPage ? (
+        <Subscribe onSuccess={handleSubscriptionComplete} />
+      ) : (
+        <SidebarProvider style={style as React.CSSProperties}>
+          <div className="flex h-screen w-full">
+            <Sidebar>
+              <SidebarContent>
+                <SidebarGroup>
+                  <div className="px-4 py-6">
+                    <h2 className="text-lg font-bold">Liquid Encrypt</h2>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Quantum-Resistant Security
+                    </p>
+                  </div>
+                  <SidebarGroupContent>
+                    <SidebarMenu>
+                      {menuItems.map((item) => (
+                        <SidebarMenuItem key={item.title}>
+                          <SidebarMenuButton
+                            onClick={() => setCurrentPage(item.page)}
+                            isActive={currentPage === item.page}
+                            data-testid={`nav-${item.page}`}
+                          >
+                            <item.icon className="w-4 h-4" />
+                            <span>{item.title}</span>
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      ))}
+                    </SidebarMenu>
+                  </SidebarGroupContent>
+                  <div className="mt-auto p-4">
+                    <Button
+                      variant="ghost"
+                      className="w-full justify-start"
+                      onClick={handleLogout}
+                      data-testid="button-logout"
+                    >
+                      <LogOut className="w-4 h-4 mr-2" />
+                      Logout
+                    </Button>
+                  </div>
+                </SidebarGroup>
+              </SidebarContent>
+            </Sidebar>
+
+            <div className="flex flex-col flex-1 overflow-hidden">
+              <header className="flex items-center justify-between p-4 border-b border-border">
+                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                <ThemeToggle />
+              </header>
+
+              <main className="flex-1 overflow-auto p-8">
+                {currentPage === "dashboard" && (
+                  <Dashboard onNavigate={setCurrentPage} />
+                )}
+                {currentPage === "upload" && <UploadPage onNavigate={setCurrentPage} />}
+                {currentPage === "documents" && (
+                  <Documents onNavigate={setCurrentPage} />
+                )}
+                {currentPage === "architecture" && (
+                  <Architecture onNavigate={setCurrentPage} />
+                )}
+              </main>
+            </div>
+          </div>
+        </SidebarProvider>
+      )}
+      <Toaster />
+    </>
+  );
+}
+
+function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <ThemeProvider>
-          {!authenticated ? (
-            authView === "login" ? (
-              <Login
-                onSuccess={handleLogin}
-                onSwitchToSignup={() => setAuthView("signup")}
-              />
-            ) : (
-              <Signup
-                onSuccess={handleLogin}
-                onSwitchToLogin={() => setAuthView("login")}
-              />
-            )
-          ) : (
-            <SidebarProvider style={style as React.CSSProperties}>
-              <div className="flex h-screen w-full">
-                <Sidebar>
-                  <SidebarContent>
-                    <SidebarGroup>
-                      <div className="px-4 py-6">
-                        <h2 className="text-lg font-bold">Liquid Encrypt</h2>
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Quantum-Resistant Security
-                        </p>
-                      </div>
-                      <SidebarGroupContent>
-                        <SidebarMenu>
-                          {menuItems.map((item) => (
-                            <SidebarMenuItem key={item.title}>
-                              <SidebarMenuButton
-                                onClick={() => setCurrentPage(item.page)}
-                                isActive={currentPage === item.page}
-                                data-testid={`nav-${item.page}`}
-                              >
-                                <item.icon className="w-4 h-4" />
-                                <span>{item.title}</span>
-                              </SidebarMenuButton>
-                            </SidebarMenuItem>
-                          ))}
-                        </SidebarMenu>
-                      </SidebarGroupContent>
-                      <div className="mt-auto p-4">
-                        <Button
-                          variant="ghost"
-                          className="w-full justify-start"
-                          onClick={handleLogout}
-                          data-testid="button-logout"
-                        >
-                          <LogOut className="w-4 h-4 mr-2" />
-                          Logout
-                        </Button>
-                      </div>
-                    </SidebarGroup>
-                  </SidebarContent>
-                </Sidebar>
-
-                <div className="flex flex-col flex-1 overflow-hidden">
-                  <header className="flex items-center justify-between p-4 border-b border-border">
-                    <SidebarTrigger data-testid="button-sidebar-toggle" />
-                    <ThemeToggle />
-                  </header>
-
-                  <main className="flex-1 overflow-auto p-8">
-                    {currentPage === "dashboard" && (
-                      <Dashboard onNavigate={setCurrentPage} />
-                    )}
-                    {currentPage === "upload" && <UploadPage onNavigate={setCurrentPage} />}
-                    {currentPage === "documents" && (
-                      <Documents onNavigate={setCurrentPage} />
-                    )}
-                    {currentPage === "architecture" && (
-                      <Architecture onNavigate={setCurrentPage} />
-                    )}
-                  </main>
-                </div>
-              </div>
-            </SidebarProvider>
-          )}
-          <Toaster />
+          <AppContent />
         </ThemeProvider>
       </TooltipProvider>
     </QueryClientProvider>
