@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -29,11 +29,43 @@ interface SubscribeProps {
   onSuccess: () => void;
 }
 
-function CheckoutForm({ onSuccess }: { onSuccess: () => void }) {
+function PaymentMethodForm({
+  selectedPlanId,
+  onSuccess,
+}: {
+  selectedPlanId: string;
+  onSuccess: () => void;
+}) {
   const stripe = useStripe();
   const elements = useElements();
   const { toast } = useToast();
   const [isProcessing, setIsProcessing] = useState(false);
+
+  const createSubscriptionMutation = useMutation({
+    mutationFn: async (paymentMethodId: string) => {
+      const res = await apiRequest("POST", "/api/subscriptions/create", {
+        planId: selectedPlanId,
+        paymentMethodId,
+      });
+      return await res.json();
+    },
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
+      toast({
+        title: "Subscription Activated!",
+        description: "Your subscription is now active. Redirecting...",
+      });
+      setTimeout(() => onSuccess(), 1500);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Subscription Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      setIsProcessing(false);
+    },
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,26 +76,30 @@ function CheckoutForm({ onSuccess }: { onSuccess: () => void }) {
 
     setIsProcessing(true);
 
-    const { error } = await stripe.confirmPayment({
+    const { error, setupIntent } = await stripe.confirmSetup({
       elements,
+      redirect: "if_required",
       confirmParams: {
-        return_url: window.location.origin + "?payment=success",
+        return_url: window.location.origin,
       },
     });
 
     if (error) {
       toast({
-        title: "Payment Failed",
+        title: "Payment Method Failed",
         description: error.message,
         variant: "destructive",
       });
       setIsProcessing(false);
-    } else {
-      toast({
-        title: "Payment Successful",
-        description: "You are now subscribed!",
-      });
-      onSuccess();
+      return;
+    }
+
+    if (setupIntent?.payment_method) {
+      const paymentMethodId =
+        typeof setupIntent.payment_method === "string"
+          ? setupIntent.payment_method
+          : setupIntent.payment_method.id;
+      createSubscriptionMutation.mutate(paymentMethodId);
     }
   };
 
@@ -79,7 +115,7 @@ function CheckoutForm({ onSuccess }: { onSuccess: () => void }) {
         {isProcessing ? (
           <>
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-            Processing...
+            {createSubscriptionMutation.isPending ? "Activating Subscription..." : "Processing..."}
           </>
         ) : (
           "Confirm Subscription"
@@ -89,7 +125,15 @@ function CheckoutForm({ onSuccess }: { onSuccess: () => void }) {
   );
 }
 
-function CheckoutWrapper({ clientSecret, onSuccess }: { clientSecret: string; onSuccess: () => void }) {
+function PaymentMethodWrapper({
+  clientSecret,
+  selectedPlanId,
+  onSuccess,
+}: {
+  clientSecret: string;
+  selectedPlanId: string;
+  onSuccess: () => void;
+}) {
   return (
     <Elements stripe={stripePromise} options={{ clientSecret }}>
       <Card className="max-w-2xl mx-auto">
@@ -98,7 +142,7 @@ function CheckoutWrapper({ clientSecret, onSuccess }: { clientSecret: string; on
           <CardDescription>Enter your payment details to activate your plan</CardDescription>
         </CardHeader>
         <CardContent>
-          <CheckoutForm onSuccess={onSuccess} />
+          <PaymentMethodForm selectedPlanId={selectedPlanId} onSuccess={onSuccess} />
         </CardContent>
       </Card>
     </Elements>
@@ -108,27 +152,27 @@ function CheckoutWrapper({ clientSecret, onSuccess }: { clientSecret: string; on
 export default function Subscribe({ onSuccess }: SubscribeProps) {
   const { toast } = useToast();
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
 
   const { data: plans, isLoading: plansLoading } = useQuery<SubscriptionPlan[]>({
     queryKey: ["/api/subscriptions/plans"],
   });
 
-  const createSubscriptionMutation = useMutation({
-    mutationFn: async (planId: string) => {
-      const res = await apiRequest("POST", "/api/subscriptions/create", { planId });
+  const createSetupIntentMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/subscriptions/setup-intent", {});
       return await res.json();
     },
     onSuccess: (data) => {
-      setClientSecret(data.clientSecret);
+      setSetupClientSecret(data.clientSecret);
       toast({
-        title: "Subscription created",
-        description: "Please complete your payment",
+        title: "Ready for Payment",
+        description: "Please enter your payment method to continue",
       });
     },
     onError: (error: Error) => {
       toast({
-        title: "Failed to create subscription",
+        title: "Setup Failed",
         description: error.message,
         variant: "destructive",
       });
@@ -138,7 +182,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
 
   const handleSelectPlan = (planId: string) => {
     setSelectedPlanId(planId);
-    createSubscriptionMutation.mutate(planId);
+    createSetupIntentMutation.mutate();
   };
 
   if (plansLoading) {
@@ -149,10 +193,14 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
     );
   }
 
-  if (clientSecret) {
+  if (setupClientSecret && selectedPlanId) {
     return (
       <div className="min-h-screen p-8">
-        <CheckoutWrapper clientSecret={clientSecret} onSuccess={onSuccess} />
+        <PaymentMethodWrapper
+          clientSecret={setupClientSecret}
+          selectedPlanId={selectedPlanId}
+          onSuccess={onSuccess}
+        />
       </div>
     );
   }
@@ -271,10 +319,10 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
                   className="w-full"
                   variant={plan.planType === "business" ? "default" : "outline"}
                   onClick={() => handleSelectPlan(plan.id)}
-                  disabled={createSubscriptionMutation.isPending && selectedPlanId === plan.id}
+                  disabled={createSetupIntentMutation.isPending && selectedPlanId === plan.id}
                   data-testid={`button-select-${plan.planType}`}
                 >
-                  {createSubscriptionMutation.isPending && selectedPlanId === plan.id ? (
+                  {createSetupIntentMutation.isPending && selectedPlanId === plan.id ? (
                     <>
                       <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                       Setting up...
