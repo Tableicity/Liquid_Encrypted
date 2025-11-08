@@ -16,10 +16,11 @@ interface Message {
 interface ChatInterfaceProps {
   onAuthSuccess?: (sessionId: string) => void;
   documentId?: string;
+  existingSessionId?: string;
 }
 
-export function ChatInterface({ onAuthSuccess, documentId }: ChatInterfaceProps) {
-  const [sessionId, setSessionId] = useState<string | null>(null);
+export function ChatInterface({ onAuthSuccess, documentId, existingSessionId }: ChatInterfaceProps) {
+  const [sessionId, setSessionId] = useState<string | null>(existingSessionId || null);
   const [messages, setMessages] = useState<Message[]>([
     {
       id: "1",
@@ -33,7 +34,12 @@ export function ChatInterface({ onAuthSuccess, documentId }: ChatInterfaceProps)
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // Create chat session on mount
+    // Only create a new chat session if we don't have an existing one
+    if (existingSessionId) {
+      setSessionId(existingSessionId);
+      return;
+    }
+    
     const createSession = async () => {
       try {
         const res = await apiRequest("POST", "/api/chat/session", { documentId });
@@ -44,7 +50,7 @@ export function ChatInterface({ onAuthSuccess, documentId }: ChatInterfaceProps)
       }
     };
     createSession();
-  }, [documentId]);
+  }, [documentId, existingSessionId]);
 
   useEffect(() => {
     if (scrollRef.current) {

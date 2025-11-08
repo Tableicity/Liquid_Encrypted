@@ -226,10 +226,16 @@ Keep responses concise and professional. After 1-2 exchanges, decide whether to 
 
       const aiResponse = completion.choices[0]?.message?.content || "I'm processing your story...";
 
-      // Check if authentication should be granted
-      const shouldAuthenticate = aiResponse.toLowerCase().includes("authentication successful") ||
-        aiResponse.toLowerCase().includes("verified") ||
-        aiResponse.toLowerCase().includes("access granted");
+      // Check if authentication should be granted based on AI analysis
+      const responseLower = aiResponse.toLowerCase();
+      const shouldAuthenticate = responseLower.includes("authentication successful") ||
+        responseLower.includes("verified") ||
+        responseLower.includes("access granted") ||
+        responseLower.includes("access is granted") ||
+        responseLower.includes("you may access") ||
+        responseLower.includes("you have access") ||
+        responseLower.includes("authenticated successfully") ||
+        (responseLower.includes("narrative coherence") && responseLower.includes("emotional authenticity"));
 
       const aiMessage = {
         role: "ai" as const,

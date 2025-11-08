@@ -128,11 +128,26 @@ export default function Documents({ onNavigate }: DocumentsProps) {
     setShowAuthDialog(true);
   };
 
+  const handleDownload = (id: string) => {
+    // If we have an authenticated session, use it directly
+    if (authenticatedSessionId) {
+      downloadMutation.mutate({ id, sessionId: authenticatedSessionId });
+    } else {
+      // Otherwise, open auth dialog first
+      setSelectedDoc(id);
+      setShowAuthDialog(true);
+    }
+  };
+
   const handleAuthSuccess = (sessionId: string) => {
+    // Store the authenticated session for future downloads
+    setAuthenticatedSessionId(sessionId);
+    
+    // Immediately download the selected document
     if (selectedDoc) {
-      setAuthenticatedSessionId(sessionId);
       downloadMutation.mutate({ id: selectedDoc, sessionId });
     }
+    
     setShowAuthDialog(false);
   };
 
@@ -206,7 +221,7 @@ export default function Documents({ onNavigate }: DocumentsProps) {
               lastAccessed={doc.lastAccessed ? formatTimestamp(doc.lastAccessed) : undefined}
               size={formatFileSize(doc.size)}
               onView={() => handleView(doc.id)}
-              onDownload={() => handleView(doc.id)}
+              onDownload={() => handleDownload(doc.id)}
               onDelete={() => {
                 if (confirm(`Are you sure you want to delete "${doc.name}"?`)) {
                   deleteMutation.mutate(doc.id);
@@ -223,7 +238,10 @@ export default function Documents({ onNavigate }: DocumentsProps) {
           <DialogHeader>
             <DialogTitle>Authenticate to Access Document</DialogTitle>
           </DialogHeader>
-          <ChatInterface onAuthSuccess={handleAuthSuccess} />
+          <ChatInterface 
+            onAuthSuccess={handleAuthSuccess} 
+            existingSessionId={authenticatedSessionId || undefined}
+          />
         </DialogContent>
       </Dialog>
     </div>
