@@ -21,24 +21,27 @@ All core functionality is operational and tested:
 
 ## Recent Major Updates (November 2025)
 
-### Phase 1-7: Subscription & Billing System (NEW) ✅
+### Phase 1-7: Subscription & Billing System (PRODUCTION READY) ✅
 - **JWT Authentication**: Secure user signup/login with token-based auth
 - **3-Tier Subscription Plans**:
   - Personal: $19.99/mo, 50 GB storage
   - Business: $99.99/mo, 500 GB storage
   - Enterprise: $999.99/mo, 5120 GB storage
-- **Stripe Integration**: Full payment processing with test/live key separation
-- **Payment Flow**:
-  1. User selects plan → Backend creates Stripe subscription + PaymentIntent
-  2. Frontend loads Stripe Elements with clientSecret
-  3. User enters payment details → Stripe processes
-  4. Success redirect → "Payment Successful" toast
-  5. Webhooks update subscription status to "active"
+- **Stripe Integration**: Full two-step payment processing following Stripe best practices
+- **Two-Step Payment Flow** (Stripe Recommended):
+  1. **Step 1 - Collect Payment Method**: User selects plan → Backend creates SetupIntent → Frontend loads Stripe Elements with clientSecret
+  2. **Step 2 - Create Subscription**: User confirms payment method → Payment method attached to Stripe customer → Subscription created with attached payment method
+  3. Stripe automatically activates subscription (status="active") for valid payment methods
+  4. Frontend shows "Subscription Activated" toast → Redirect to dashboard
+  5. Webhooks handle invoice.payment_succeeded for subscription renewals
 - **Environment Configuration**:
+  - Development/Testing: `TESTING_STRIPE_SECRET_KEY` (sk_test_...), `VITE_TESTING_STRIPE_PUBLIC_KEY` (pk_test_...)
   - Production: `STRIPE_SECRET_KEY` (sk_live_...), `VITE_STRIPE_PUBLIC_KEY` (pk_live_...)
-  - Testing: `TESTING_STRIPE_SECRET_KEY` (sk_test_...), `TESTING_VITE_STRIPE_PUBLIC_KEY` (pk_test_...)
-- **Status**: Core subscription creation and payment collection working ✅
-- **Pending**: Webhook enhancement for auto-renewal payment method attachment
+  - **Stripe API Version**: `"2024-11-20.acacia"` (stable) - CRITICAL: Must use stable version for proper subscription period date handling
+- **Status**: Complete subscription flow tested end-to-end ✅
+  - Signup → Plan selection → Payment method collection → Subscription creation → Activation verified
+  - All automated tests passing
+  - Architect review passed
 
 ### Database Migration to PostgreSQL
 - **Previous**: In-memory storage (data lost on restart)
