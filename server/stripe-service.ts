@@ -3,12 +3,18 @@ import Stripe from "stripe";
 import type { IStorage } from "./storage";
 import type { User } from "@shared/schema";
 
-if (!process.env.STRIPE_SECRET_KEY) {
-  throw new Error("Missing required Stripe secret: STRIPE_SECRET_KEY");
+// Use TESTING keys in development, LIVE keys in production
+const isTestMode = process.env.NODE_ENV !== "production";
+const stripeSecretKey = isTestMode 
+  ? (process.env.TESTING_STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY)
+  : process.env.STRIPE_SECRET_KEY;
+
+if (!stripeSecretKey) {
+  throw new Error(`Missing required Stripe secret: ${isTestMode ? "TESTING_STRIPE_SECRET_KEY" : "STRIPE_SECRET_KEY"}`);
 }
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: "2025-10-29.clover",
+export const stripe = new Stripe(stripeSecretKey, {
+  apiVersion: "2024-11-20.acacia",
 });
 
 export class StripeService {
@@ -133,6 +139,7 @@ export class StripeService {
 
     // Create subscription with the payment method already attached
     // Stripe will automatically charge it and activate the subscription
+    console.log("[DEBUG] Creating subscription with planId:", planId, "price:", price.id);
     const stripeSubscription = await stripe.subscriptions.create({
       customer: customerId,
       items: [{ price: price.id }],
@@ -140,12 +147,30 @@ export class StripeService {
       expand: ["latest_invoice.payment_intent"],
     });
 
-    // Calculate period dates
+    console.log("[DEBUG] Stripe subscription created:", {
+      id: stripeSubscription.id,
+      status: stripeSubscription.status,
+      current_period_start: stripeSubscription.current_period_start,
+      current_period_end: stripeSubscription.current_period_end,
+      hasCurrentPeriodStart: !!stripeSubscription.current_period_start,
+      hasCurrentPeriodEnd: !!stripeSubscription.current_period_end,
+    });
+
+    // Calculate period dates - with validation
     const periodStartTimestamp = stripeSubscription.current_period_start;
     const periodEndTimestamp = stripeSubscription.current_period_end;
     
+    if (!periodStartTimestamp || !periodEndTimestamp) {
+      throw new Error("Subscription period dates not set by Stripe");
+    }
+    
     const currentPeriodStart = new Date(periodStartTimestamp * 1000);
     const currentPeriodEnd = new Date(periodEndTimestamp * 1000);
+    
+    // Validate dates are valid
+    if (isNaN(currentPeriodStart.getTime()) || isNaN(currentPeriodEnd.getTime())) {
+      throw new Error("Invalid subscription period dates from Stripe");
+    }
 
     // Determine initial status - should be "active" if payment succeeds immediately
     const initialStatus = stripeSubscription.status === "active" ? "active" : "incomplete";

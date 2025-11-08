@@ -9,10 +9,15 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Loader2, Lock } from "lucide-react";
 
-if (!import.meta.env.VITE_STRIPE_PUBLIC_KEY) {
-  throw new Error("Missing required Stripe key: VITE_STRIPE_PUBLIC_KEY");
+// Use TESTING key in development, LIVE key in production
+const stripePublicKey = import.meta.env.MODE === "development"
+  ? (import.meta.env.VITE_TESTING_STRIPE_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PUBLIC_KEY)
+  : import.meta.env.VITE_STRIPE_PUBLIC_KEY;
+
+if (!stripePublicKey) {
+  throw new Error("Missing required Stripe key: VITE_STRIPE_PUBLIC_KEY or VITE_TESTING_STRIPE_PUBLIC_KEY");
 }
-const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLIC_KEY);
+const stripePromise = loadStripe(stripePublicKey);
 
 interface SubscriptionPlan {
   id: string;
