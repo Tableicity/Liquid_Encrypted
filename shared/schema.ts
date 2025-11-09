@@ -4,13 +4,15 @@ import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 
 // Users & Authentication Tables
+// Role types: 'customer', 'support', 'billing_admin', 'super_admin', 'owner'
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email", { length: 255 }).notNull().unique(),
   passwordHash: varchar("password_hash", { length: 255 }).notNull(),
   fullName: varchar("full_name", { length: 255 }),
   companyName: varchar("company_name", { length: 255 }),
-  role: varchar("role", { length: 50 }).notNull().default("user"),
+  role: varchar("role", { length: 50 }).notNull().default("customer"),
+  permissions: jsonb("permissions").default(sql`'{}'::jsonb`),
   status: varchar("status", { length: 50 }).notNull().default("active"),
   stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -189,6 +191,7 @@ export interface UserPublic {
   fullName?: string;
   companyName?: string;
   role: string;
+  permissions: Record<string, any>;
   status: string;
   createdAt: string;
 }
