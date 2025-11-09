@@ -57,6 +57,7 @@ export interface IStorage {
   getAllSubscriptionPlans(): Promise<SubscriptionPlan[]>;
   getSubscriptionPlan(id: string): Promise<SubscriptionPlan | undefined>;
   getSubscriptionPlanByType(planType: string): Promise<SubscriptionPlan | undefined>;
+  createSubscriptionPlan(plan: Omit<SubscriptionPlan, 'id' | 'active' | 'createdAt' | 'updatedAt'>): Promise<SubscriptionPlan>;
 
   // Storage Usage operations
   getStorageUsageByUserId(userId: string): Promise<StorageUsage | undefined>;
@@ -288,6 +289,19 @@ export class PostgresStorage implements IStorage {
 
   async getSubscriptionPlanByType(planType: string): Promise<SubscriptionPlan | undefined> {
     const result = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.planType, planType)).limit(1);
+    return result[0];
+  }
+
+  async createSubscriptionPlan(plan: Omit<SubscriptionPlan, 'id' | 'active' | 'createdAt' | 'updatedAt'>): Promise<SubscriptionPlan> {
+    const id = randomUUID();
+    const result = await db
+      .insert(subscriptionPlans)
+      .values({
+        id,
+        ...plan,
+        active: true,
+      })
+      .returning();
     return result[0];
   }
 

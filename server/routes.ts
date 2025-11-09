@@ -297,7 +297,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const createdPlans = [];
       for (const plan of plans) {
-        const created = await storage.createSubscriptionPlan(plan);
+        // Convert numeric prices to strings for database
+        const planToCreate = {
+          ...plan,
+          monthlyPrice: plan.monthlyPrice.toFixed(2),
+          annualPrice: plan.annualPrice.toFixed(2),
+          storageAddonPrice: plan.storageAddonPrice.toFixed(2),
+        };
+        const created = await storage.createSubscriptionPlan(planToCreate);
         createdPlans.push(created);
       }
 
@@ -394,7 +401,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ];
 
         for (const plan of defaultPlans) {
-          await storage.createSubscriptionPlan(plan);
+          // Convert numeric prices to strings for database
+          const planToCreate = {
+            ...plan,
+            monthlyPrice: plan.monthlyPrice.toFixed(2),
+            annualPrice: plan.annualPrice.toFixed(2),
+            storageAddonPrice: plan.storageAddonPrice.toFixed(2),
+          };
+          await storage.createSubscriptionPlan(planToCreate);
         }
         
         // Fetch the newly created plans
@@ -560,8 +574,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId: string = req.userId;
 
       // Check active subscription FIRST (required for all uploads)
-      const subscription = await storage.getActiveSubscriptionByUserId(userId);
-      if (!subscription) {
+      const subscription = await storage.getSubscriptionByUserId(userId);
+      if (!subscription || subscription.status !== 'active') {
         return res.status(403).json({ 
           error: "Active subscription required",
           message: "Please subscribe to a plan to upload documents"
@@ -569,7 +583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       // Get subscription plan to calculate quota
-      const plan = await storage.getSubscriptionPlanById(subscription.planId);
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
       if (!plan) {
         return res.status(500).json({ error: "Subscription plan not found" });
       }
@@ -580,7 +594,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Check current storage usage
       const currentUsage = await storage.getStorageUsageByUserId(userId);
-      const currentUsedGb = currentUsage ? parseFloat(currentUsage.usedGb) : 0;
+      const currentUsedGb = currentUsage ? parseFloat(currentUsage.usedGb || '0') : 0;
 
       // Enforce quota
       if (currentUsedGb + fileGb > quotaGb) {
@@ -646,7 +660,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       );
 
       // Post-increment quota check (protects against concurrent uploads)
-      const finalUsedGb = parseFloat(updatedUsage.usedGb);
+      const finalUsedGb = parseFloat(updatedUsage.usedGb || '0');
       if (finalUsedGb > quotaGb) {
         // Concurrent upload pushed us over quota - rollback this upload
         await storage.deleteDocument(doc.id);
@@ -719,7 +733,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Update storage usage
       const currentUsage = await storage.getStorageUsageByUserId(userId);
       if (currentUsage && doc.userId === userId) {
-        const usedGb = Math.max(0, parseFloat(currentUsage.usedGb) - (doc.size / (1024 * 1024 * 1024)));
+        const usedGb = Math.max(0, parseFloat(currentUsage.usedGb || '0') - (doc.size / (1024 * 1024 * 1024)));
         await storage.updateStorageUsage(userId, {
           usedGb: usedGb.toFixed(2),
           documentCount: Math.max(0, (currentUsage.documentCount || 0) - 1),
