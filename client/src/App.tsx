@@ -64,11 +64,31 @@ function AppContent() {
     }
   }, [toast]);
 
-  const { data: subscription, isLoading: subscriptionLoading } = useQuery<Subscription | null>({
+  const { data: subscription, isLoading: subscriptionLoading, error: subscriptionError } = useQuery<Subscription | null>({
     queryKey: ["/api/subscriptions/current"],
     enabled: authenticated,
     retry: false,
   });
+
+  // Handle invalid/expired token
+  useEffect(() => {
+    if (subscriptionError && authenticated) {
+      // Check if it's a 401 error
+      const errorMessage = (subscriptionError as any)?.message || '';
+      if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('Invalid or expired token')) {
+        // Token is invalid, clear it and show login
+        removeToken();
+        setAuthenticated(false);
+        setNeedsSubscription(false);
+        queryClient.clear();
+        toast({
+          title: "Session Expired",
+          description: "Please log in again to continue.",
+          variant: "destructive",
+        });
+      }
+    }
+  }, [subscriptionError, authenticated, toast]);
 
   const handleLogin = () => {
     setAuthenticated(true);
