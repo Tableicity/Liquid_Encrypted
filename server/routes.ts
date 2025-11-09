@@ -46,9 +46,18 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
 
   const token = authHeader.substring(7);
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string; email: string };
+    const decoded = jwt.verify(token, JWT_SECRET) as { 
+      userId: string; 
+      email: string;
+      role?: string;
+      permissions?: Record<string, any>;
+    };
     req.userId = decoded.userId;
     req.userEmail = decoded.email;
+    // @ts-ignore - Extended properties for RBAC
+    req.userRole = decoded.role || "customer";
+    // @ts-ignore - Extended properties for RBAC
+    req.userPermissions = decoded.permissions || {};
     next();
   } catch (error) {
     return res.status(401).json({ error: "Invalid or expired token" });
@@ -95,7 +104,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generate JWT token (expires in 30 days)
       const token = jwt.sign(
-        { userId: user.id, email: user.email },
+        { 
+          userId: user.id, 
+          email: user.email,
+          role: user.role,
+          permissions: user.permissions || {}
+        },
         JWT_SECRET,
         { expiresIn: "30d" }
       );
@@ -143,7 +157,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Generate JWT token (expires in 30 days)
       const token = jwt.sign(
-        { userId: user.id, email: user.email },
+        { 
+          userId: user.id, 
+          email: user.email,
+          role: user.role,
+          permissions: user.permissions || {}
+        },
         JWT_SECRET,
         { expiresIn: "30d" }
       );
