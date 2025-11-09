@@ -35,7 +35,7 @@ export interface IStorage {
 
   // Chat session operations
   getChatSession(id: string): Promise<ChatSession | undefined>;
-  createChatSession(documentId?: string): Promise<ChatSession>;
+  createChatSession(documentId?: string, userId?: string): Promise<ChatSession>;
   updateChatSession(id: string, updates: Partial<ChatSession>): Promise<ChatSession | undefined>;
 
   // User operations
@@ -163,7 +163,7 @@ export class PostgresStorage implements IStorage {
     return result[0];
   }
 
-  async createChatSession(documentId?: string): Promise<ChatSession> {
+  async createChatSession(documentId?: string, userId?: string): Promise<ChatSession> {
     const id = randomUUID();
     const initialMessages = [
       {
@@ -178,6 +178,7 @@ export class PostgresStorage implements IStorage {
       .insert(chatSessions)
       .values({
         id,
+        userId: userId ?? null,
         documentId: documentId ?? null,
         messages: initialMessages as any,
         authenticated: false,

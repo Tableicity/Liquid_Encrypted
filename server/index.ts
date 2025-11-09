@@ -3,6 +3,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
+import { storage } from "./storage";
 
 const app = express();
 
@@ -73,7 +74,61 @@ app.use((req, res, next) => {
   next();
 });
 
+/**
+ * Bootstrap owner account from OWNER_EMAIL environment variable
+ * This should run once at startup to promote the designated owner
+ */
+async function bootstrapOwnerAccount() {
+  const ownerEmail = process.env.OWNER_EMAIL;
+  
+  if (!ownerEmail) {
+    console.log("[RBAC Bootstrap] No OWNER_EMAIL environment variable set. Skipping owner account setup.");
+    return;
+  }
+  
+  console.log(`[RBAC Bootstrap] Checking for owner account: ${ownerEmail}`);
+  
+  try {
+    const user = await storage.getUserByEmail(ownerEmail);
+    
+    if (!user) {
+      console.error(`❌ [RBAC Bootstrap] CRITICAL: User with email '${ownerEmail}' does not exist!`);
+      console.error(`   Please create an account with this email first, then restart the application.`);
+      return;
+    }
+    
+    if (user.role === "owner") {
+      console.log(`✅ [RBAC Bootstrap] User ${ownerEmail} already has 'owner' role.`);
+      return;
+    }
+    
+    // Promote user to owner
+    await storage.updateUser(user.id, { role: "owner" });
+    console.log(`🎯 [RBAC Bootstrap] SUCCESS: User ${ownerEmail} promoted to 'owner' role!`);
+    
+    // Log the promotion in audit logs
+    await storage.createAuditLog({
+      userId: user.id,
+      action: "owner_bootstrap",
+      resourceType: "user",
+      resourceId: user.id,
+      status: "success",
+      details: {
+        email: ownerEmail,
+        previousRole: user.role,
+        newRole: "owner",
+        message: "Owner account bootstrapped from OWNER_EMAIL environment variable"
+      }
+    });
+  } catch (error) {
+    console.error(`❌ [RBAC Bootstrap] Error during owner bootstrap:`, error);
+  }
+}
+
 (async () => {
+  // Bootstrap owner account before registering routes
+  await bootstrapOwnerAccount();
+  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

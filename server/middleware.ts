@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { IStorage } from "./storage";
+import type { Document } from "@shared/schema";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "change-me-in-production";
 
@@ -15,6 +16,11 @@ export interface AuthRequest extends Request {
 /**
  * Basic authentication middleware - verifies JWT token
  * Extracts userId, email, role, and permissions from token
+ * 
+ * SECURITY NOTE: Permissions are embedded in JWT and cached for token lifetime (30 days).
+ * Permission revocations won't take effect until token expires. 
+ * TODO: Implement token refresh/invalidation strategy or check permissions against database
+ * for critical operations to ensure immediate revocation.
  */
 export function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -33,7 +39,8 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     
     req.userId = decoded.userId;
     req.userEmail = decoded.email;
-    req.userRole = decoded.role || "customer";
+    // Normalize legacy "user" role to "customer" for backward compatibility
+    req.userRole = (decoded.role === "user" ? "customer" : decoded.role) || "customer";
     req.userPermissions = decoded.permissions || {};
     
     next();
@@ -166,4 +173,62 @@ function checkPermission(permissions: Record<string, any>, permission: string): 
   }
 
   return current === true;
+}
+
+/**
+ * Document ownership access control helper
+ * Verifies that a user can access a specific document
+ * 
+ * - Privileged roles (support, super_admin, owner) can access any document
+ * - Regular customers can only access their own documents
+ * - Logs unauthorized attempts for security monitoring
+ * 
+ * @param req - Express request with user information from requireAuth
+ * @param document - Document to check access for
+ * @param storage - Storage instance for audit logging
+ * @returns true if access is allowed, sends 403 response and returns false otherwise
+ */
+export async function assertDocumentAccess(
+  req: AuthRequest, 
+  document: Document, 
+  storage?: IStorage
+): Promise<boolean> {
+  const privilegedRoles = ["support", "super_admin", "owner"];
+  
+  // Privileged roles can access any document
+  if (req.userRole && privilegedRoles.includes(req.userRole)) {
+    return true;
+  }
+  
+  // Regular users can only access their own documents
+  if (document.userId !== req.userId) {
+    // Log horizontal privilege escalation attempt
+    if (storage) {
+      try {
+        await storage.createAuditLog({
+          userId: req.userId,
+          action: "document_access_denied",
+          resourceType: "document",
+          resourceId: document.id,
+          status: "denied",
+          details: {
+            reason: "ownership_mismatch",
+            documentOwner: document.userId,
+            attemptedBy: req.userId,
+            userRole: req.userRole,
+            documentName: document.name,
+            method: req.method,
+            path: req.path,
+            ip: req.ip,
+          }
+        });
+      } catch (error) {
+        console.error("Failed to log document access denial:", error);
+      }
+    }
+    
+    return false;
+  }
+  
+  return true;
 }

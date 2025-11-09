@@ -138,6 +138,7 @@ export const fragments = pgTable("fragments", {
 
 export const chatSessions = pgTable("chat_sessions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).references(() => users.id, { onDelete: "cascade" }),
   documentId: varchar("document_id", { length: 255 }).references(() => documents.id),
   messages: jsonb("messages").notNull().default(sql`'[]'::jsonb`),
   authenticated: boolean("authenticated").notNull().default(false),

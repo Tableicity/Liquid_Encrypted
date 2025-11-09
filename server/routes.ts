@@ -7,6 +7,8 @@ import OpenAI from "openai";
 import { storage } from "./storage";
 import { liquifyDocument, reconstituteDocument } from "./liquification";
 import { StripeService, stripe } from "./stripe-service";
+import { requireAuth, requireRole, hasPermission, assertDocumentAccess, type AuthRequest } from "./middleware";
+import { registerAdminRoutes } from "./admin-routes";
 import { 
   insertDocumentSchema, 
   chatMessageSchema, 
@@ -27,40 +29,15 @@ if (!process.env.SESSION_SECRET) {
 }
 const JWT_SECRET: string = process.env.SESSION_SECRET;
 
-// Extend Express Request to include user
+// Extend Express Request to include user (now handled by middleware.ts)
 declare global {
   namespace Express {
     interface Request {
       userId?: string;
       userEmail?: string;
+      userRole?: string;
+      userPermissions?: Record<string, any>;
     }
-  }
-}
-
-// Middleware to verify JWT token
-function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return res.status(401).json({ error: "Authentication required" });
-  }
-
-  const token = authHeader.substring(7);
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { 
-      userId: string; 
-      email: string;
-      role?: string;
-      permissions?: Record<string, any>;
-    };
-    req.userId = decoded.userId;
-    req.userEmail = decoded.email;
-    // @ts-ignore - Extended properties for RBAC
-    req.userRole = decoded.role || "customer";
-    // @ts-ignore - Extended properties for RBAC
-    req.userPermissions = decoded.permissions || {};
-    next();
-  } catch (error) {
-    return res.status(401).json({ error: "Invalid or expired token" });
   }
 }
 
@@ -91,7 +68,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.createUser({
         email: data.email,
         passwordHash,
-        role: "user",
+        role: "customer", // Default role for new signups
       });
 
       // Create default storage usage record
@@ -227,116 +204,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // ========== Subscription Routes ==========
   const stripeService = new StripeService(storage);
-
-  // Seed subscription plans (call this once to populate database)
-  app.post("/api/admin/seed-plans", async (req, res) => {
-    try {
-      // Check if plans already exist
-      const existingPlans = await storage.getAllSubscriptionPlans();
-      if (existingPlans.length > 0) {
-        return res.json({ 
-          message: "Plans already seeded", 
-          count: existingPlans.length,
-          plans: existingPlans 
-        });
-      }
-
-      // Seed the 3 subscription plans
-      const plans = [
-        {
-          planType: "personal" as const,
-          name: "Personal Plan",
-          monthlyPrice: 19.99,
-          annualPrice: 191.90,
-          storageBaseGb: 50,
-          storageAddonUnitGb: 50,
-          storageAddonPrice: 5.00,
-          maxDocuments: 1000,
-          maxUsers: 1,
-          fragmentNodeCount: 5,
-          supportLevel: "Email Support",
-          apiAccess: false,
-          features: [
-            "50GB encrypted storage",
-            "Up to 1,000 documents",
-            "Story-based authentication",
-            "Email support",
-            "Fragment distribution across 5 nodes"
-          ],
-        },
-        {
-          planType: "business" as const,
-          name: "Business Plan",
-          monthlyPrice: 99.99,
-          annualPrice: 959.90,
-          storageBaseGb: 500,
-          storageAddonUnitGb: 50,
-          storageAddonPrice: 4.00,
-          maxDocuments: 10000,
-          maxUsers: 5,
-          fragmentNodeCount: 8,
-          supportLevel: "Priority Support",
-          apiAccess: true,
-          features: [
-            "500GB encrypted storage",
-            "Up to 10,000 documents",
-            "Story-based authentication",
-            "Priority support",
-            "API access",
-            "Fragment distribution across 8 nodes",
-            "Advanced analytics"
-          ],
-        },
-        {
-          planType: "enterprise" as const,
-          name: "Enterprise Plan",
-          monthlyPrice: 999.99,
-          annualPrice: 9599.90,
-          storageBaseGb: 5120,
-          storageAddonUnitGb: 50,
-          storageAddonPrice: 3.00,
-          maxDocuments: null,
-          maxUsers: null,
-          fragmentNodeCount: 12,
-          supportLevel: "Dedicated Account Manager",
-          apiAccess: true,
-          features: [
-            "5TB encrypted storage",
-            "Unlimited documents",
-            "Story-based authentication",
-            "Dedicated account manager",
-            "Full API access",
-            "Fragment distribution across 12 nodes",
-            "Advanced analytics",
-            "Custom SLA",
-            "Priority fragment healing"
-          ],
-        }
-      ];
-
-      const createdPlans = [];
-      for (const plan of plans) {
-        // Convert numeric prices to strings for database
-        const planToCreate = {
-          ...plan,
-          monthlyPrice: plan.monthlyPrice.toFixed(2),
-          annualPrice: plan.annualPrice.toFixed(2),
-          storageAddonPrice: plan.storageAddonPrice.toFixed(2),
-        };
-        const created = await storage.createSubscriptionPlan(planToCreate);
-        createdPlans.push(created);
-      }
-
-      res.json({ 
-        message: "Successfully seeded subscription plans",
-        count: createdPlans.length,
-        plans: createdPlans 
-      });
-    } catch (error) {
-      console.error("Error seeding subscription plans:", error);
-      res.status(500).json({ error: "Failed to seed subscription plans" });
-    }
-  });
+  
+  // NOTE: Seed-plans endpoint moved to /api/admin/seed-plans (protected by owner role)
 
   // Get all subscription plans (auto-seeds if empty)
   app.get("/api/subscriptions/plans", async (req, res) => {
@@ -444,7 +313,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create SetupIntent for collecting payment method (Step 1)
-  app.post("/api/subscriptions/setup-intent", requireAuth, async (req, res) => {
+  app.post("/api/subscriptions/setup-intent", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
     try {
       // @ts-ignore - userId guaranteed by requireAuth middleware
       const userId: string = req.userId;
@@ -459,7 +328,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Create subscription with payment method (Step 2)
-  app.post("/api/subscriptions/create", requireAuth, async (req, res) => {
+  app.post("/api/subscriptions/create", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
     try {
       // @ts-ignore - userId guaranteed by requireAuth middleware
       const userId: string = req.userId;
@@ -490,7 +359,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Get current user's subscription
-  app.get("/api/subscriptions/current", requireAuth, async (req, res) => {
+  app.get("/api/subscriptions/current", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
     try {
       // @ts-ignore - userId guaranteed by requireAuth middleware
       const userId: string = req.userId;
@@ -553,10 +422,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // ========== Document Routes ==========
-  // Get all documents (without encryption keys)
-  app.get("/api/documents", async (req, res) => {
+  // Get all documents (without encryption keys) - Protected by customer role
+  app.get("/api/documents", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
     try {
-      const documents = await storage.getAllDocuments();
+      const privilegedRoles = ["support", "super_admin", "owner"];
+      let documents;
+      
+      // Privileged roles see all documents, customers see only their own
+      if (req.userRole && privilegedRoles.includes(req.userRole)) {
+        documents = await storage.getAllDocuments();
+      } else {
+        documents = await storage.getDocumentsByUserId(req.userId!);
+      }
+      
       res.json(documents.map(toPublicDocument));
     } catch (error) {
       console.error("Error fetching documents:", error);
@@ -564,13 +442,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Get single document (without encryption key)
-  app.get("/api/documents/:id", async (req, res) => {
+  // Get single document (without encryption key) - Protected by customer role
+  app.get("/api/documents/:id", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
     try {
       const doc = await storage.getDocument(req.params.id);
       if (!doc) {
         return res.status(404).json({ error: "Document not found" });
       }
+      
+      // Check ownership
+      const hasAccess = await assertDocumentAccess(req, doc, storage);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied. You can only access your own documents." });
+      }
+      
       res.json(toPublicDocument(doc));
     } catch (error) {
       console.error("Error fetching document:", error);
@@ -578,8 +463,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Upload and liquify document (requires authentication)
-  app.post("/api/documents/upload", requireAuth, upload.single("file"), async (req, res) => {
+  // Upload and liquify document (requires authentication and customer role)
+  app.post("/api/documents/upload", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
@@ -727,21 +612,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Delete document (requires authentication and ownership)
-  app.delete("/api/documents/:id", requireAuth, async (req, res) => {
+  // Delete document (requires authentication, customer role, and ownership)
+  app.delete("/api/documents/:id", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
     try {
       const doc = await storage.getDocument(req.params.id);
       if (!doc) {
         return res.status(404).json({ error: "Document not found" });
       }
 
+      // Check ownership using shared helper
+      const hasAccess = await assertDocumentAccess(req, doc, storage);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied. You can only delete your own documents." });
+      }
+
       // @ts-ignore - userId guaranteed by requireAuth middleware
       const userId: string = req.userId;
-
-      // Check ownership (allow null userId for legacy documents)
-      if (doc.userId && doc.userId !== userId) {
-        return res.status(403).json({ error: "You do not have permission to delete this document" });
-      }
 
       // Delete fragments
       await storage.deleteFragmentsByDocumentId(req.params.id);
@@ -774,8 +660,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Reconstitute document (requires authenticated session)
-  app.post("/api/documents/:id/reconstitute", async (req, res) => {
+  // Reconstitute document (CRITICAL: requires auth + customer role)
+  // TODO: Replace with story-based authentication system for enhanced security
+  app.post("/api/documents/:id/reconstitute", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
     try {
       const { sessionId } = req.body;
 
@@ -801,6 +688,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const doc = await storage.getDocument(req.params.id);
       if (!doc) {
         return res.status(404).json({ error: "Document not found" });
+      }
+      
+      // Check ownership using shared helper
+      const hasAccess = await assertDocumentAccess(req, doc, storage);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied. You can only access your own documents." });
       }
 
       // Get all fragments
@@ -829,11 +722,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Create chat session
-  app.post("/api/chat/session", async (req, res) => {
+  // Create chat session (protected by customer role)
+  // TODO: Integrate story-based authentication tokens for enhanced narrative verification
+  app.post("/api/chat/session", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
     try {
       const { documentId } = req.body;
-      const session = await storage.createChatSession(documentId);
+      
+      // If documentId provided, verify user owns the document
+      if (documentId) {
+        const doc = await storage.getDocument(documentId);
+        if (!doc) {
+          return res.status(404).json({ error: "Document not found" });
+        }
+        
+        // Check ownership
+        const hasAccess = await assertDocumentAccess(req, doc, storage);
+        if (!hasAccess) {
+          return res.status(403).json({ error: "Access denied. You can only create chat sessions for your own documents." });
+        }
+      }
+      
+      const session = await storage.createChatSession(documentId, req.userId);
       res.json(session);
     } catch (error) {
       console.error("Error creating chat session:", error);
@@ -841,8 +750,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Send chat message and get AI response
-  app.post("/api/chat/message", async (req, res) => {
+  // Send chat message and get AI response (protected by customer role)
+  // TODO: Integrate story-based authentication tokens for enhanced narrative verification
+  app.post("/api/chat/message", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req, res) => {
     try {
       if (!process.env.OPENAI_API_KEY) {
         return res.status(500).json({ 
@@ -930,6 +840,9 @@ Keep responses concise and professional. After 1-2 exchanges, decide whether to 
       res.status(500).json({ error: "Failed to process message" });
     }
   });
+
+  // ========== Admin Routes ==========
+  registerAdminRoutes(app);
 
   const httpServer = createServer(app);
 
