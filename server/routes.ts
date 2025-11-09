@@ -17,6 +17,14 @@ import {
   type DocumentPublic 
 } from "@shared/schema";
 import { ZodError } from "zod";
+import { 
+  createAuditLog, 
+  auditLogin, 
+  auditLoginFailure,
+  auditDocumentUpload,
+  auditDocumentDownload,
+  auditDocumentDelete
+} from "./utils/auditLog";
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 
@@ -91,11 +99,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { expiresIn: "30d" }
       );
 
-      // Create audit log
-      await storage.createAuditLog({
-        userId: user.id,
-        action: "user_signup",
-        details: { email: user.email },
+      // Create comprehensive audit log
+      await createAuditLog(storage, {
+        actorId: user.id,
+        actorEmail: user.email,
+        actorRole: user.role,
+        action: "USER_SIGNUP",
+        result: "success",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        metadata: { 
+          fullName: data.fullName,
+          companyName: data.companyName 
+        },
       });
 
       res.json({
@@ -123,12 +139,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Find user
       const user = await storage.getUserByEmail(data.email);
       if (!user) {
+        // Log failed login attempt
+        await auditLoginFailure(storage, data.email, "invalid_email", req);
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
       // Verify password
       const isValid = await bcrypt.compare(data.password, user.passwordHash);
       if (!isValid) {
+        // Log failed login attempt
+        await auditLoginFailure(storage, data.email, "invalid_password", req);
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
@@ -144,12 +164,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         { expiresIn: "30d" }
       );
 
-      // Create audit log
-      await storage.createAuditLog({
-        userId: user.id,
-        action: "user_login",
-        details: { email: user.email },
-      });
+      // Create comprehensive audit log for successful login
+      await auditLogin(storage, user.id, user.email, user.role, req);
 
       res.json({
         token,
@@ -503,12 +519,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Enforce quota
       if (currentUsedGb + fileGb > quotaGb) {
         // Log quota rejection for monitoring
-        await storage.createAuditLog({
-          userId,
-          action: "quota_exceeded",
+        await createAuditLog(storage, {
+          actorId: userId,
+          actorEmail: req.userEmail,
+          actorRole: req.userRole,
+          action: "QUOTA_EXCEEDED",
           resourceType: "document",
-          status: "blocked",
-          details: {
+          result: "denied",
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          metadata: {
             fileName,
             fileSize,
             currentUsage: currentUsedGb.toFixed(2),
@@ -573,12 +593,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Atomically rollback storage usage increment
         await storage.atomicDecrementStorageUsage(userId, fileGb);
         
-        await storage.createAuditLog({
-          userId,
-          action: "quota_exceeded_concurrent",
+        await createAuditLog(storage, {
+          actorId: userId,
+          actorEmail: req.userEmail,
+          actorRole: req.userRole,
+          action: "QUOTA_EXCEEDED_CONCURRENT",
           resourceType: "document",
-          status: "rolled_back",
-          details: {
+          result: "failure",
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          metadata: {
             fileName,
             fileSize,
             finalUsage: finalUsedGb.toFixed(2),
@@ -597,13 +621,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Create audit log
-      await storage.createAuditLog({
-        userId,
-        action: "document_upload",
-        resourceId: doc.id,
-        details: { fileName, fileSize },
-      });
+      // Create comprehensive audit log for successful document upload
+      await auditDocumentUpload(storage, userId, req.userEmail!, doc.id, fileName, fileSize, req);
 
       res.json(toPublicDocument(updatedDoc));
     } catch (error) {
@@ -645,13 +664,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
-      // Create audit log
-      await storage.createAuditLog({
-        userId,
-        action: "document_delete",
-        resourceId: doc.id,
-        details: { documentName: doc.name, documentSize: doc.size },
-      });
+      // Create comprehensive audit log for document deletion
+      await auditDocumentDelete(storage, userId, req.userEmail!, doc.id, doc.name, req);
 
       res.json({ success: true });
     } catch (error) {
