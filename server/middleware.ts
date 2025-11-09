@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { IStorage } from "./storage";
 import type { Document } from "@shared/schema";
+import { createAuditLog } from "./utils/auditLog";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "change-me-in-production";
 
@@ -66,21 +67,23 @@ export function requireRole(allowedRoles: string[], storage?: IStorage) {
 
     // Check if user's role is in allowed roles
     if (!allowedRoles.includes(req.userRole)) {
-      // Log unauthorized access attempt
+      // Log unauthorized access attempt with comprehensive audit logging
       if (storage) {
         try {
-          await storage.createAuditLog({
-            userId: req.userId,
-            action: "unauthorized_access_attempt",
+          await createAuditLog(storage, {
+            actorId: req.userId,
+            actorEmail: req.userEmail,
+            actorRole: req.userRole,
+            action: "UNAUTHORIZED_ACCESS_ATTEMPT",
             resourceType: "route",
             resourceId: req.path,
-            status: "denied",
-            details: {
-              userRole: req.userRole,
+            result: "denied",
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+            metadata: {
               requiredRoles: allowedRoles,
               method: req.method,
               path: req.path,
-              ip: req.ip,
             }
           });
         } catch (error) {
@@ -118,21 +121,24 @@ export function hasPermission(permission: string, storage?: IStorage) {
     const hasAccess = checkPermission(req.userPermissions, permission);
 
     if (!hasAccess) {
-      // Log unauthorized permission access attempt
+      // Log unauthorized permission access attempt with comprehensive audit logging
       if (storage) {
         try {
-          await storage.createAuditLog({
-            userId: req.userId,
-            action: "permission_denied",
+          await createAuditLog(storage, {
+            actorId: req.userId,
+            actorEmail: req.userEmail,
+            actorRole: req.userRole,
+            action: "PERMISSION_DENIED",
             resourceType: "permission",
             resourceId: permission,
-            status: "denied",
-            details: {
+            result: "denied",
+            ipAddress: req.ip,
+            userAgent: req.headers["user-agent"],
+            metadata: {
               requiredPermission: permission,
               userPermissions: req.userPermissions,
               method: req.method,
               path: req.path,
-              ip: req.ip,
             }
           });
         } catch (error) {
@@ -202,24 +208,25 @@ export async function assertDocumentAccess(
   
   // Regular users can only access their own documents
   if (document.userId !== req.userId) {
-    // Log horizontal privilege escalation attempt
+    // Log horizontal privilege escalation attempt with comprehensive audit logging
     if (storage) {
       try {
-        await storage.createAuditLog({
-          userId: req.userId,
-          action: "document_access_denied",
+        await createAuditLog(storage, {
+          actorId: req.userId,
+          actorEmail: req.userEmail,
+          actorRole: req.userRole,
+          action: "DOCUMENT_ACCESS_DENIED",
           resourceType: "document",
           resourceId: document.id,
-          status: "denied",
-          details: {
+          targetUserId: document.userId || undefined,
+          result: "denied",
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          metadata: {
             reason: "ownership_mismatch",
-            documentOwner: document.userId,
-            attemptedBy: req.userId,
-            userRole: req.userRole,
             documentName: document.name,
             method: req.method,
             path: req.path,
-            ip: req.ip,
           }
         });
       } catch (error) {
