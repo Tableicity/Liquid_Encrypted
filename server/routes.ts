@@ -209,10 +209,200 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ========== Subscription Routes ==========
   const stripeService = new StripeService(storage);
 
-  // Get all subscription plans
+  // Seed subscription plans (call this once to populate database)
+  app.post("/api/admin/seed-plans", async (req, res) => {
+    try {
+      // Check if plans already exist
+      const existingPlans = await storage.getAllSubscriptionPlans();
+      if (existingPlans.length > 0) {
+        return res.json({ 
+          message: "Plans already seeded", 
+          count: existingPlans.length,
+          plans: existingPlans 
+        });
+      }
+
+      // Seed the 3 subscription plans
+      const plans = [
+        {
+          planType: "personal" as const,
+          name: "Personal Plan",
+          monthlyPrice: 19.99,
+          annualPrice: 191.90,
+          storageBaseGb: 50,
+          storageAddonUnitGb: 50,
+          storageAddonPrice: 5.00,
+          maxDocuments: 1000,
+          maxUsers: 1,
+          fragmentNodeCount: 5,
+          supportLevel: "Email Support",
+          apiAccess: false,
+          features: [
+            "50GB encrypted storage",
+            "Up to 1,000 documents",
+            "Story-based authentication",
+            "Email support",
+            "Fragment distribution across 5 nodes"
+          ],
+        },
+        {
+          planType: "business" as const,
+          name: "Business Plan",
+          monthlyPrice: 99.99,
+          annualPrice: 959.90,
+          storageBaseGb: 500,
+          storageAddonUnitGb: 50,
+          storageAddonPrice: 4.00,
+          maxDocuments: 10000,
+          maxUsers: 5,
+          fragmentNodeCount: 8,
+          supportLevel: "Priority Support",
+          apiAccess: true,
+          features: [
+            "500GB encrypted storage",
+            "Up to 10,000 documents",
+            "Story-based authentication",
+            "Priority support",
+            "API access",
+            "Fragment distribution across 8 nodes",
+            "Advanced analytics"
+          ],
+        },
+        {
+          planType: "enterprise" as const,
+          name: "Enterprise Plan",
+          monthlyPrice: 999.99,
+          annualPrice: 9599.90,
+          storageBaseGb: 5120,
+          storageAddonUnitGb: 50,
+          storageAddonPrice: 3.00,
+          maxDocuments: null,
+          maxUsers: null,
+          fragmentNodeCount: 12,
+          supportLevel: "Dedicated Account Manager",
+          apiAccess: true,
+          features: [
+            "5TB encrypted storage",
+            "Unlimited documents",
+            "Story-based authentication",
+            "Dedicated account manager",
+            "Full API access",
+            "Fragment distribution across 12 nodes",
+            "Advanced analytics",
+            "Custom SLA",
+            "Priority fragment healing"
+          ],
+        }
+      ];
+
+      const createdPlans = [];
+      for (const plan of plans) {
+        const created = await storage.createSubscriptionPlan(plan);
+        createdPlans.push(created);
+      }
+
+      res.json({ 
+        message: "Successfully seeded subscription plans",
+        count: createdPlans.length,
+        plans: createdPlans 
+      });
+    } catch (error) {
+      console.error("Error seeding subscription plans:", error);
+      res.status(500).json({ error: "Failed to seed subscription plans" });
+    }
+  });
+
+  // Get all subscription plans (auto-seeds if empty)
   app.get("/api/subscriptions/plans", async (req, res) => {
     try {
-      const plans = await storage.getAllSubscriptionPlans();
+      let plans = await storage.getAllSubscriptionPlans();
+      
+      // Auto-seed if no plans exist
+      if (plans.length === 0) {
+        console.log("[/api/subscriptions/plans] No plans found, auto-seeding database...");
+        
+        const defaultPlans = [
+          {
+            planType: "personal" as const,
+            name: "Personal Plan",
+            monthlyPrice: 19.99,
+            annualPrice: 191.90,
+            storageBaseGb: 50,
+            storageAddonUnitGb: 50,
+            storageAddonPrice: 5.00,
+            maxDocuments: 1000,
+            maxUsers: 1,
+            fragmentNodeCount: 5,
+            supportLevel: "Email Support",
+            apiAccess: false,
+            features: [
+              "50GB encrypted storage",
+              "Up to 1,000 documents",
+              "Story-based authentication",
+              "Email support",
+              "Fragment distribution across 5 nodes"
+            ],
+          },
+          {
+            planType: "business" as const,
+            name: "Business Plan",
+            monthlyPrice: 99.99,
+            annualPrice: 959.90,
+            storageBaseGb: 500,
+            storageAddonUnitGb: 50,
+            storageAddonPrice: 4.00,
+            maxDocuments: 10000,
+            maxUsers: 5,
+            fragmentNodeCount: 8,
+            supportLevel: "Priority Support",
+            apiAccess: true,
+            features: [
+              "500GB encrypted storage",
+              "Up to 10,000 documents",
+              "Story-based authentication",
+              "Priority support",
+              "API access",
+              "Fragment distribution across 8 nodes",
+              "Advanced analytics"
+            ],
+          },
+          {
+            planType: "enterprise" as const,
+            name: "Enterprise Plan",
+            monthlyPrice: 999.99,
+            annualPrice: 9599.90,
+            storageBaseGb: 5120,
+            storageAddonUnitGb: 50,
+            storageAddonPrice: 3.00,
+            maxDocuments: null,
+            maxUsers: null,
+            fragmentNodeCount: 12,
+            supportLevel: "Dedicated Account Manager",
+            apiAccess: true,
+            features: [
+              "5TB encrypted storage",
+              "Unlimited documents",
+              "Story-based authentication",
+              "Dedicated account manager",
+              "Full API access",
+              "Fragment distribution across 12 nodes",
+              "Advanced analytics",
+              "Custom SLA",
+              "Priority fragment healing"
+            ],
+          }
+        ];
+
+        for (const plan of defaultPlans) {
+          await storage.createSubscriptionPlan(plan);
+        }
+        
+        // Fetch the newly created plans
+        plans = await storage.getAllSubscriptionPlans();
+        console.log(`[/api/subscriptions/plans] Auto-seeded ${plans.length} plans successfully`);
+      }
+      
+      console.log(`[/api/subscriptions/plans] Returning ${plans.length} plans`);
       res.json(plans);
     } catch (error) {
       console.error("Error fetching subscription plans:", error);
