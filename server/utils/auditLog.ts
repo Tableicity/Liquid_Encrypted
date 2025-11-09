@@ -2,8 +2,16 @@ import crypto from "crypto";
 import type { IStorage } from "../storage";
 import type { Request } from "express";
 
-// Get audit log signing secret from environment or use session secret as fallback
-const AUDIT_SECRET = process.env.AUDIT_LOG_SECRET || process.env.SESSION_SECRET || "default-audit-secret";
+// Get audit log signing secret from environment - MANDATORY for security
+const AUDIT_SECRET = process.env.AUDIT_LOG_SECRET || process.env.SESSION_SECRET;
+
+if (!AUDIT_SECRET) {
+  throw new Error(
+    "CRITICAL SECURITY ERROR: Audit logging requires AUDIT_LOG_SECRET or SESSION_SECRET environment variable. " +
+    "Audit logs cannot be tamper-proof without a secret key. " +
+    "Please set AUDIT_LOG_SECRET or SESSION_SECRET before starting the application."
+  );
+}
 
 export interface AuditLogData {
   // Actor (who did it) - can be auto-populated from req
