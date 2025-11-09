@@ -90,18 +90,42 @@ export const payments = pgTable("payments", {
   paidAt: timestamp("paid_at"),
 });
 
-// Audit Logs
+// Audit Logs - Comprehensive security audit trail
 export const auditLogs = pgTable("audit_logs", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  
+  // Legacy fields (backward compatibility)
   userId: varchar("user_id", { length: 255 }).references(() => users.id),
   adminId: varchar("admin_id", { length: 255 }).references(() => users.id),
+  status: varchar("status", { length: 50 }),
+  details: jsonb("details").default(sql`'{}'::jsonb`),
+  
+  // New Actor fields (who did it)
+  actorId: varchar("actor_id", { length: 255 }).references(() => users.id),
+  actorEmail: varchar("actor_email", { length: 255 }),
+  actorRole: varchar("actor_role", { length: 50 }),
+  
+  // Action (what they did)
   action: varchar("action", { length: 100 }).notNull(),
   resourceType: varchar("resource_type", { length: 50 }),
   resourceId: varchar("resource_id", { length: 255 }),
-  ipAddress: varchar("ip_address", { length: 45 }),
+  
+  // Target (who/what was affected)
+  targetUserId: varchar("target_user_id", { length: 255 }).references(() => users.id),
+  targetUserEmail: varchar("target_user_email", { length: 255 }),
+  
+  // Context
+  ipAddress: inet("ip_address"),
   userAgent: text("user_agent"),
-  status: varchar("status", { length: 50 }),
-  details: jsonb("details").default(sql`'{}'::jsonb`),
+  
+  // Details
+  changes: jsonb("changes").default(sql`'{}'::jsonb`),
+  result: varchar("result", { length: 50 }),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  
+  // Security - tamper-proof hash
+  signature: varchar("signature", { length: 255 }),
+  
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 

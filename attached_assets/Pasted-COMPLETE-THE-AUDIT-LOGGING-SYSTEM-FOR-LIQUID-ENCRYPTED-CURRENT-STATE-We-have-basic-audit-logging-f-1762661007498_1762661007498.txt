@@ -1,0 +1,492 @@
+COMPLETE THE AUDIT LOGGING SYSTEM FOR LIQUID ENCRYPTED
+
+CURRENT STATE:
+We have basic audit logging for document access denials.
+We need comprehensive logging for ALL sensitive actions before building admin console.
+
+EXISTING WORK:
+✅ audit_logs table exists (confirmed in tests)
+✅ Basic logging for document_access_denied
+✅ actor_id, action, status fields present
+
+REQUIREMENTS:
+
+1. VERIFY/ENHANCE AUDIT_LOGS TABLE SCHEMA:
+   
+   Ensure audit_logs table has ALL these columns:
+   
+   CREATE TABLE IF NOT EXISTS audit_logs (
+     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+     
+     -- Actor (who did it)
+     actor_id UUID REFERENCES users(id),
+     actor_email VARCHAR(255),
+     actor_role VARCHAR(50),
+     
+     -- Action (what they did)
+     action VARCHAR(100) NOT NULL,
+     resource_type VARCHAR(50),
+     resource_id UUID,
+     
+     -- Target (who/what was affected)
+     target_user_id UUID REFERENCES users(id),
+     target_user_email VARCHAR(255),
+     
+     -- Context
+     ip_address INET,
+     user_agent TEXT,
+     
+     -- Details
+     changes JSONB, -- Before/after values
+     result VARCHAR(50), -- success/failure/denied
+     metadata JSONB, -- Additional context
+     
+     -- Security
+     signature VARCHAR(255) -- SHA-256 tamper-proof hash
+   );
+   
+   -- Ensure indexes exist
+   CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id, timestamp DESC);
+   CREATE INDEX IF NOT EXISTS idx_audit_target ON audit_logs(target_user_id, timestamp DESC);
+   CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action, timestamp DESC);
+   CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_logs(timestamp DESC);
+
+2. CREATE COMPREHENSIVE auditLog() HELPER:
+   
+   Location: src/utils/auditLog.ts (or similar)
+   
+   import crypto from 'crypto';
+   
+   interface AuditLogData {
+     actorId?: string;
+     actorEmail?: string;
+     actorRole?: string;
+     action: string;
+     resourceType?: string;
+     resourceId?: string;
+     targetUserId?: string;
+     targetUserEmail?: string;
+     ipAddress?: string;
+     userAgent?: string;
+     changes?: any;
+     result: 'success' | 'failure' | 'denied';
+     metadata?: any;
+   }
+   
+   const generateSignature = (data: AuditLogData): string => {
+     const signatureData = JSON.stringify({
+       timestamp: new Date().toISOString(),
+       ...data
+     });
+     return crypto.createHash('sha256').update(signatureData).digest('hex');
+   };
+   
+   export const auditLog = async (data: AuditLogData): Promise<void> => {
+     const signature = generateSignature(data);
+     
+     await db.query(`
+       INSERT INTO audit_logs (
+         actor_id, actor_email, actor_role,
+         action, resource_type, resource_id,
+         target_user_id, target_user_email,
+         ip_address, user_agent,
+         changes, result, metadata,
+         signature
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+     `, [
+       data.actorId,
+       data.actorEmail,
+       data.actorRole,
+       data.action,
+       data.resourceType,
+       data.resourceId,
+       data.targetUserId,
+       data.targetUserEmail,
+       data.ipAddress,
+       data.userAgent,
+       JSON.stringify(data.changes || {}),
+       data.result,
+       JSON.stringify(data.metadata || {}),
+       signature
+     ]);
+   };
+
+3. ADD AUDIT LOGGING TO ALL SENSITIVE ACTIONS:
+   
+   A. Authentication Actions:
+   
+   // Login success
+   await auditLog({
+     actorId: user.id,
+     actorEmail: user.email,
+     actorRole: user.role,
+     action: 'USER_LOGIN',
+     result: 'success',
+     ipAddress: req.ip,
+     userAgent: req.headers['user-agent']
+   });
+   
+   // Login failure
+   await auditLog({
+     actorEmail: req.body.email,
+     action: 'LOGIN_FAILED',
+     result: 'failure',
+     ipAddress: req.ip,
+     metadata: { reason: 'invalid_credentials' }
+   });
+   
+   // Logout
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     action: 'USER_LOGOUT',
+     result: 'success',
+     ipAddress: req.ip
+   });
+   
+   B. Document Actions:
+   
+   // Document upload
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     action: 'DOCUMENT_UPLOAD',
+     resourceType: 'document',
+     resourceId: document.id,
+     result: 'success',
+     metadata: {
+       filename: document.filename,
+       size: document.size,
+       fragmentCount: 8
+     }
+   });
+   
+   // Document download
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     action: 'DOCUMENT_DOWNLOAD',
+     resourceType: 'document',
+     resourceId: documentId,
+     result: 'success'
+   });
+   
+   // Document delete
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     action: 'DOCUMENT_DELETE',
+     resourceType: 'document',
+     resourceId: documentId,
+     result: 'success',
+     changes: {
+       status: { from: 'active', to: 'deleted' }
+     }
+   });
+   
+   C. Subscription Actions:
+   
+   // Subscription created
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     action: 'SUBSCRIPTION_CREATED',
+     resourceType: 'subscription',
+     resourceId: subscription.id,
+     result: 'success',
+     metadata: {
+       plan: subscription.plan_type,
+       price: subscription.total_price
+     }
+   });
+   
+   // Subscription changed (by admin)
+   await auditLog({
+     actorId: req.user.id, // Admin
+     actorEmail: req.user.email,
+     actorRole: req.user.role,
+     action: 'SUBSCRIPTION_CHANGED',
+     resourceType: 'subscription',
+     resourceId: subscription.id,
+     targetUserId: targetUser.id,
+     targetUserEmail: targetUser.email,
+     result: 'success',
+     changes: {
+       plan: { from: oldPlan, to: newPlan },
+       price: { from: oldPrice, to: newPrice }
+     },
+     metadata: { reason: req.body.reason }
+   });
+   
+   // Subscription cancelled
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     action: 'SUBSCRIPTION_CANCELLED',
+     resourceType: 'subscription',
+     resourceId: subscription.id,
+     result: 'success',
+     metadata: { reason: req.body.cancellation_reason }
+   });
+   
+   D. Payment Actions:
+   
+   // Payment success
+   await auditLog({
+     actorId: userId,
+     actorEmail: user.email,
+     action: 'PAYMENT_SUCCESS',
+     resourceType: 'payment',
+     resourceId: payment.id,
+     result: 'success',
+     metadata: {
+       amount: payment.amount,
+       currency: payment.currency,
+       stripe_payment_id: payment.stripe_payment_intent_id
+     }
+   });
+   
+   // Payment failed
+   await auditLog({
+     actorId: userId,
+     actorEmail: user.email,
+     action: 'PAYMENT_FAILED',
+     resourceType: 'payment',
+     result: 'failure',
+     metadata: {
+       amount: attemptedAmount,
+       reason: error.code
+     }
+   });
+   
+   // Refund issued (admin action)
+   await auditLog({
+     actorId: req.user.id, // Admin
+     actorEmail: req.user.email,
+     actorRole: req.user.role,
+     action: 'REFUND_ISSUED',
+     resourceType: 'payment',
+     resourceId: payment.id,
+     targetUserId: targetUser.id,
+     targetUserEmail: targetUser.email,
+     result: 'success',
+     metadata: {
+       amount: refundAmount,
+       reason: req.body.refund_reason
+     }
+   });
+   
+   E. Admin Actions:
+   
+   // Admin views user details
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     actorRole: req.user.role,
+     action: 'ADMIN_VIEW_USER',
+     targetUserId: targetUserId,
+     targetUserEmail: targetUser.email,
+     result: 'success',
+     ipAddress: req.ip
+   });
+   
+   // Admin changes user role
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     actorRole: req.user.role,
+     action: 'ADMIN_CHANGE_ROLE',
+     targetUserId: targetUserId,
+     targetUserEmail: targetUser.email,
+     result: 'success',
+     changes: {
+       role: { from: oldRole, to: newRole }
+     },
+     metadata: { reason: req.body.reason }
+   });
+   
+   // Admin suspends account
+   await auditLog({
+     actorId: req.user.id,
+     actorEmail: req.user.email,
+     actorRole: req.user.role,
+     action: 'ADMIN_SUSPEND_ACCOUNT',
+     targetUserId: targetUserId,
+     targetUserEmail: targetUser.email,
+     result: 'success',
+     changes: {
+       status: { from: 'active', to: 'suspended' }
+     },
+     metadata: { reason: req.body.suspension_reason }
+   });
+   
+   F. Security Events:
+   
+   // Unauthorized access attempt (already implemented!)
+   await auditLog({
+     actorId: req.user?.id,
+     actorEmail: req.user?.email,
+     action: 'UNAUTHORIZED_ACCESS_ATTEMPT',
+     resourceType: req.params.resourceType,
+     resourceId: req.params.resourceId,
+     result: 'denied',
+     ipAddress: req.ip,
+     metadata: {
+       attempted_action: req.method + ' ' + req.path,
+       required_role: requiredRole,
+       user_role: req.user?.role
+     }
+   });
+
+4. CREATE AUDIT LOG VIEWER API ENDPOINTS:
+   
+   // GET /api/admin/audit-logs (already exists, enhance it)
+   app.get('/api/admin/audit-logs', 
+     authenticate,
+     requireRole(['super_admin', 'owner']),
+     async (req, res) => {
+       const { 
+         page = 1, 
+         limit = 50, 
+         action, 
+         actorId, 
+         targetUserId,
+         startDate,
+         endDate 
+       } = req.query;
+       
+       let query = 'SELECT * FROM audit_logs WHERE 1=1';
+       const params = [];
+       
+       if (action) {
+         params.push(action);
+         query += ` AND action = $${params.length}`;
+       }
+       
+       if (actorId) {
+         params.push(actorId);
+         query += ` AND actor_id = $${params.length}`;
+       }
+       
+       if (targetUserId) {
+         params.push(targetUserId);
+         query += ` AND target_user_id = $${params.length}`;
+       }
+       
+       if (startDate) {
+         params.push(startDate);
+         query += ` AND timestamp >= $${params.length}`;
+       }
+       
+       if (endDate) {
+         params.push(endDate);
+         query += ` AND timestamp <= $${params.length}`;
+       }
+       
+       query += ` ORDER BY timestamp DESC LIMIT ${limit} OFFSET ${(page - 1) * limit}`;
+       
+       const logs = await db.query(query, params);
+       
+       // Get total count
+       const countResult = await db.query('SELECT COUNT(*) FROM audit_logs');
+       const total = countResult.rows[0].count;
+       
+       res.json({
+         logs: logs.rows,
+         pagination: {
+           page: parseInt(page),
+           limit: parseInt(limit),
+           total: parseInt(total),
+           pages: Math.ceil(total / limit)
+         }
+       });
+     }
+   );
+   
+   // GET /api/admin/audit-logs/actions (list available actions)
+   app.get('/api/admin/audit-logs/actions',
+     authenticate,
+     requireRole(['super_admin', 'owner']),
+     async (req, res) => {
+       const actions = await db.query(`
+         SELECT DISTINCT action FROM audit_logs ORDER BY action
+       `);
+       res.json(actions.rows.map(r => r.action));
+     }
+   );
+   
+   // GET /api/admin/audit-logs/export (CSV export)
+   app.get('/api/admin/audit-logs/export',
+     authenticate,
+     requireRole(['super_admin', 'owner']),
+     async (req, res) => {
+       const { startDate, endDate } = req.query;
+       
+       const logs = await db.query(`
+         SELECT * FROM audit_logs 
+         WHERE timestamp BETWEEN $1 AND $2
+         ORDER BY timestamp DESC
+       `, [startDate, endDate]);
+       
+       // Generate CSV
+       const csv = generateCSV(logs.rows);
+       res.setHeader('Content-Type', 'text/csv');
+       res.setHeader('Content-Disposition', 'attachment; filename=audit-logs.csv');
+       res.send(csv);
+     }
+   );
+
+5. CREATE AUDIT LOG CLEANUP JOB:
+   
+   // Location: src/jobs/cleanupAuditLogs.ts
+   
+   import cron from 'node-cron';
+   
+   // Run monthly on the 1st at 2 AM
+   cron.schedule('0 2 1 * *', async () => {
+     const oneYearAgo = new Date();
+     oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+     
+     const result = await db.query(`
+       DELETE FROM audit_logs 
+       WHERE timestamp < $1
+       RETURNING id
+     `, [oneYearAgo]);
+     
+     console.log(`Cleaned up ${result.rowCount} audit logs older than 1 year`);
+     
+     // Log the cleanup action itself
+     await auditLog({
+       action: 'AUDIT_LOG_CLEANUP',
+       result: 'success',
+       metadata: {
+         deleted_count: result.rowCount,
+         cutoff_date: oneYearAgo.toISOString()
+       }
+     });
+   });
+
+6. TESTING REQUIREMENTS:
+   
+   Create tests to verify:
+   ✅ Login creates audit log
+   ✅ Document upload creates audit log
+   ✅ Document download creates audit log
+   ✅ Admin viewing user creates audit log
+   ✅ Admin changing subscription creates audit log with changes
+   ✅ Unauthorized access creates denied audit log
+   ✅ Audit log signatures are unique and valid
+   ✅ Audit log export works (CSV format)
+   ✅ Audit log cleanup job runs correctly
+
+7. DOCUMENTATION UPDATES:
+   
+   Add to docs/architecture.md:
+   - List of all audited actions
+   - Audit log retention policy (1 year)
+   - How to query audit logs via API
+   - Signature verification process
+
+Build this comprehensive audit logging system now.
+Every admin action MUST be logged before we build the admin console UI.
