@@ -126,8 +126,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
-      console.log(`[Login] User ${user.email} found with role: ${user.role}, permissions:`, user.permissions);
-
       // Verify password
       const isValid = await bcrypt.compare(data.password, user.passwordHash);
       if (!isValid) {
@@ -145,8 +143,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         JWT_SECRET,
         { expiresIn: "30d" }
       );
-      
-      console.log(`[Login] Generated JWT for ${user.email} with role: ${user.role}`);
 
       // Create audit log
       await storage.createAuditLog({
