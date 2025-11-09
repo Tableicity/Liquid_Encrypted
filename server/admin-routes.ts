@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
-import { requireAuth, requireRole, hasPermission } from "./middleware";
+import { requireAuth, requireRole, hasPermission, type AuthRequest } from "./middleware";
 import { storage } from "./storage";
+import { createAuditLog } from "./utils/auditLog";
 
 /**
  * Admin Routes - Protected by owner/super_admin roles
@@ -65,7 +66,7 @@ export function registerAdminRoutes(app: Express) {
     "/api/admin/users/:id/role",
     requireAuth,
     requireRole(["owner"], storage),
-    async (req, res) => {
+    async (req: AuthRequest, res) => {
       try {
         const { role } = req.body;
         const allowedRoles = ["customer", "support", "billing_admin", "super_admin", "owner"];
@@ -77,22 +78,36 @@ export function registerAdminRoutes(app: Express) {
           });
         }
         
+        // Get user before updating to track the change
+        const oldUser = await storage.getUser(req.params.id);
+        if (!oldUser) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        
         const user = await storage.updateUser(req.params.id, { role });
         if (!user) {
           return res.status(404).json({ error: "User not found" });
         }
         
-        // Log the role change
-        // @ts-ignore - userId guaranteed by requireAuth
-        await storage.createAuditLog({
-          userId: req.userId,
-          action: "user_role_changed",
+        // Log the role change with comprehensive audit logging
+        await createAuditLog(storage, {
+          actorId: req.userId,
+          actorEmail: req.userEmail,
+          actorRole: req.userRole,
+          action: "USER_ROLE_CHANGED",
           resourceType: "user",
           resourceId: req.params.id,
-          status: "success",
-          details: {
+          targetUserId: req.params.id,
+          targetUserEmail: user.email,
+          result: "success",
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          changes: {
+            oldRole: oldUser.role,
             newRole: role,
-            targetUserId: req.params.id,
+          },
+          metadata: {
+            targetUserFullName: user.fullName || undefined,
           }
         });
         
@@ -248,15 +263,19 @@ export function registerAdminRoutes(app: Express) {
           await storage.createSubscriptionPlan(planToCreate);
         }
         
-        // Log the seeding action
-        // @ts-ignore - userId guaranteed by requireAuth
-        await storage.createAuditLog({
-          userId: req.userId,
-          action: "plans_seeded",
+        // Log the seeding action with comprehensive audit logging
+        await createAuditLog(storage, {
+          actorId: (req as AuthRequest).userId,
+          actorEmail: (req as AuthRequest).userEmail,
+          actorRole: (req as AuthRequest).userRole,
+          action: "SUBSCRIPTION_PLANS_SEEDED",
           resourceType: "subscription_plan",
-          status: "success",
-          details: {
+          result: "success",
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          metadata: {
             planCount: defaultPlans.length,
+            planNames: defaultPlans.map(p => p.name),
           }
         });
         
