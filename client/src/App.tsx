@@ -130,7 +130,7 @@ function AppContent() {
 
   // Determine if user needs to subscribe
   const hasActiveSubscription = subscription && subscription.status === "active";
-  const showSubscriptionPage = authenticated && (needsSubscription || !hasActiveSubscription);
+  const showSubscriptionPage = authenticated && needsSubscription && !hasActiveSubscription;
 
   return (
     <>
