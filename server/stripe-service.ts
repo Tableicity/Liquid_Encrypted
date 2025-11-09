@@ -2,6 +2,7 @@
 import Stripe from "stripe";
 import type { IStorage } from "./storage";
 import type { User } from "@shared/schema";
+import { createAuditLog } from "./utils/auditLog";
 
 // Use TESTING keys in development, LIVE keys in production
 const isTestMode = process.env.NODE_ENV !== "production";
@@ -72,13 +73,19 @@ export class StripeService {
       throw new Error("SetupIntent has no client_secret");
     }
 
-    // Create audit log
-    await this.storage.createAuditLog({
-      userId,
-      action: "setup_intent_created",
-      details: `SetupIntent created for payment method collection`,
-      ipAddress: null,
-      userAgent: null,
+    // Create comprehensive audit log
+    await createAuditLog(this.storage, {
+      actorId: userId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: "SETUP_INTENT_CREATED",
+      resourceType: "payment_method",
+      resourceId: setupIntent.id,
+      result: "success",
+      metadata: {
+        customerId,
+        message: "SetupIntent created for payment method collection",
+      }
     });
 
     return {
@@ -188,12 +195,22 @@ export class StripeService {
       billingCycle: "monthly",
     });
 
-    // Create audit log
-    await this.storage.createAuditLog({
-      userId,
-      action: "subscription_created",
+    // Create comprehensive audit log
+    await createAuditLog(this.storage, {
+      actorId: userId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: "SUBSCRIPTION_CREATED",
+      resourceType: "subscription",
       resourceId: stripeSubscription.id,
-      details: { planId, planName: plan.name, price: plan.monthlyPrice },
+      result: "success",
+      metadata: {
+        planId,
+        planName: plan.name,
+        price: plan.monthlyPrice,
+        billingCycle: "monthly",
+        initialStatus,
+      }
     });
 
     return {
@@ -308,12 +325,21 @@ export class StripeService {
       });
     }
 
-    // Create audit log
-    await this.storage.createAuditLog({
-      userId: user.id,
-      action: "payment_succeeded",
+    // Create comprehensive audit log
+    await createAuditLog(this.storage, {
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: "PAYMENT_SUCCEEDED",
+      resourceType: "payment",
       resourceId: invoice.id,
-      details: { amount: (invoice.amount_paid / 100).toFixed(2), currency: invoice.currency },
+      result: "success",
+      metadata: {
+        amount: (invoice.amount_paid / 100).toFixed(2),
+        currency: invoice.currency,
+        subscriptionId: subscription?.id,
+        source: "stripe_webhook",
+      }
     });
   }
 
@@ -347,12 +373,21 @@ export class StripeService {
       });
     }
 
-    // Create audit log
-    await this.storage.createAuditLog({
-      userId: user.id,
-      action: "payment_failed",
+    // Create comprehensive audit log
+    await createAuditLog(this.storage, {
+      actorId: user.id,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: "PAYMENT_FAILED",
+      resourceType: "payment",
       resourceId: invoice.id,
-      details: { amount: (invoice.amount_due / 100).toFixed(2), currency: invoice.currency },
+      result: "failure",
+      metadata: {
+        amount: (invoice.amount_due / 100).toFixed(2),
+        currency: invoice.currency,
+        subscriptionId: subscription?.id,
+        source: "stripe_webhook",
+      }
     });
   }
 }
