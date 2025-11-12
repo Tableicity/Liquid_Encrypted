@@ -8,7 +8,7 @@ import { CheckCircle2, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface UploadProps {
   onNavigate: (page: "dashboard" | "documents") => void;
@@ -48,6 +48,8 @@ export default function Upload({ onNavigate }: UploadProps) {
     onSuccess: (data: { id: string }) => {
       setUploadedDocId(data.id);
       setUploadState("authenticating");
+      // Invalidate documents query to refresh the list
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
     },
     onError: (error: Error) => {
       toast({
