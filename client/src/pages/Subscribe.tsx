@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,15 +9,8 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Loader2, Lock } from "lucide-react";
 
-// Use TESTING key in development, LIVE key in production
-const stripePublicKey = import.meta.env.MODE === "development"
-  ? (import.meta.env.VITE_TESTING_STRIPE_PUBLIC_KEY || import.meta.env.VITE_STRIPE_PUBLIC_KEY)
-  : import.meta.env.VITE_STRIPE_PUBLIC_KEY;
-
-if (!stripePublicKey) {
-  throw new Error("Missing required Stripe key: VITE_STRIPE_PUBLIC_KEY or VITE_TESTING_STRIPE_PUBLIC_KEY");
-}
-const stripePromise = loadStripe(stripePublicKey);
+// Stripe promise will be initialized after fetching the publishable key from backend
+let stripePromise: Promise<Stripe | null> | null = null;
 
 interface SubscriptionPlan {
   id: string;
@@ -159,6 +152,18 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [setupClientSecret, setSetupClientSecret] = useState<string | null>(null);
 
+  // Fetch Stripe configuration from backend
+  const { data: stripeConfig, isLoading: stripeConfigLoading } = useQuery<{ publishableKey: string }>({
+    queryKey: ["/api/config/stripe"],
+  });
+
+  // Initialize Stripe with the publishable key from backend
+  useEffect(() => {
+    if (stripeConfig?.publishableKey && !stripePromise) {
+      stripePromise = loadStripe(stripeConfig.publishableKey);
+    }
+  }, [stripeConfig]);
+
   // Check for existing subscription (don't block if this fails)
   const { data: currentSubscription } = useQuery<{
     subscription: {
@@ -244,7 +249,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
     );
   }
 
-  if (plansLoading) {
+  if (plansLoading || stripeConfigLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />

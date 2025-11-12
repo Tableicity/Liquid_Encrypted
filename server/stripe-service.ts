@@ -4,15 +4,24 @@ import type { IStorage } from "./storage";
 import type { User } from "@shared/schema";
 import { createAuditLog } from "./utils/auditLog";
 
-// Use TESTING keys in development, LIVE keys in production
-const isTestMode = process.env.NODE_ENV !== "production";
+// STRIPE_MODE controls whether to use test or live keys
+// Set STRIPE_MODE=test to use test keys, STRIPE_MODE=live to use live keys
+// Defaults to test mode for safety
+const stripeMode = process.env.STRIPE_MODE || "test";
+const isTestMode = stripeMode === "test";
+
+console.log(`[Stripe] Running in ${stripeMode.toUpperCase()} mode`);
+
 const stripeSecretKey = isTestMode 
-  ? (process.env.TESTING_STRIPE_SECRET_KEY || process.env.STRIPE_SECRET_KEY)
+  ? process.env.TESTING_STRIPE_SECRET_KEY
   : process.env.STRIPE_SECRET_KEY;
 
 if (!stripeSecretKey) {
-  throw new Error(`Missing required Stripe secret: ${isTestMode ? "TESTING_STRIPE_SECRET_KEY" : "STRIPE_SECRET_KEY"}`);
+  throw new Error(`Missing required Stripe secret key for ${stripeMode} mode: ${isTestMode ? "TESTING_STRIPE_SECRET_KEY" : "STRIPE_SECRET_KEY"}`);
 }
+
+// Export mode for frontend to use
+export const STRIPE_MODE = stripeMode;
 
 export const stripe = new Stripe(stripeSecretKey, {
   apiVersion: "2024-11-20.acacia",

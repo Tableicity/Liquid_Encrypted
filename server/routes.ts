@@ -56,6 +56,29 @@ function toPublicDocument(doc: any): DocumentPublic {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // ========== Configuration Routes ==========
+  
+  // Get Stripe publishable key (returns test or live key based on STRIPE_MODE)
+  app.get("/api/config/stripe", (req, res) => {
+    const stripeMode = process.env.STRIPE_MODE || "test";
+    const isTestMode = stripeMode === "test";
+    
+    const publishableKey = isTestMode 
+      ? process.env.TESTING_VITE_STRIPE_PUBLIC_KEY
+      : process.env.VITE_STRIPE_PUBLIC_KEY;
+    
+    if (!publishableKey) {
+      return res.status(500).json({ 
+        error: `Missing Stripe publishable key for ${stripeMode} mode` 
+      });
+    }
+    
+    res.json({ 
+      publishableKey,
+      // Note: We don't expose the mode for security reasons
+    });
+  });
+  
   // ========== Authentication Routes ==========
   
   // Sign up new user
