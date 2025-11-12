@@ -27,12 +27,21 @@ export default function Upload({ onNavigate }: UploadProps) {
     mutationFn: async (file: File) => {
       const formData = new FormData();
       formData.append("file", file);
+      
+      const token = localStorage.getItem("liquid_encrypt_token");
+      const headers: HeadersInit = {};
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+      
       const res = await fetch("/api/documents/upload", {
         method: "POST",
+        headers,
         body: formData,
       });
       if (!res.ok) {
-        throw new Error("Upload failed");
+        const errorData = await res.json().catch(() => ({ error: "Upload failed" }));
+        throw new Error(errorData.error || "Upload failed");
       }
       return res.json();
     },
