@@ -5,6 +5,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ChatMessage } from "./ChatMessage";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface Message {
   id: string;
@@ -32,6 +33,8 @@ export function ChatInterface({ onAuthSuccess, documentId, existingSessionId }: 
   const [input, setInput] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const isRequestInFlight = useRef(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     // Only create a new chat session if we don't have an existing one
@@ -59,8 +62,12 @@ export function ChatInterface({ onAuthSuccess, documentId, existingSessionId }: 
   }, [messages]);
 
   const handleSend = async () => {
-    if (!input.trim() || isProcessing || !sessionId) return;
+    // Prevent multiple simultaneous requests
+    if (!input.trim() || isProcessing || !sessionId || isRequestInFlight.current) return;
 
+    // Immediately mark request as in-flight to prevent race conditions
+    isRequestInFlight.current = true;
+    
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
@@ -88,8 +95,14 @@ export function ChatInterface({ onAuthSuccess, documentId, existingSessionId }: 
 
       setMessages((prev) => [...prev, aiMessage]);
       setIsProcessing(false);
+      isRequestInFlight.current = false;
 
       if (data.authenticated && sessionId) {
+        toast({
+          title: "Authentication Successful!",
+          description: "Your story has been verified. Access granted.",
+          variant: "default",
+        });
         setTimeout(() => {
           onAuthSuccess?.(sessionId);
         }, 1500);
@@ -97,6 +110,13 @@ export function ChatInterface({ onAuthSuccess, documentId, existingSessionId }: 
     } catch (error) {
       console.error("Failed to send message:", error);
       setIsProcessing(false);
+      isRequestInFlight.current = false;
+      
+      toast({
+        title: "Authentication Error",
+        description: "Unable to process your story. Please try again.",
+        variant: "destructive",
+      });
       
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -135,9 +155,12 @@ export function ChatInterface({ onAuthSuccess, documentId, existingSessionId }: 
           />
         ))}
         {isProcessing && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>Analyzing narrative patterns...</span>
+          <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg border border-border">
+            <Loader2 className="w-5 h-5 animate-spin text-primary" />
+            <div className="flex flex-col gap-1">
+              <span className="text-sm font-medium">Analyzing your story...</span>
+              <span className="text-xs text-muted-foreground">This may take a few seconds</span>
+            </div>
           </div>
         )}
       </ScrollArea>
@@ -157,11 +180,14 @@ export function ChatInterface({ onAuthSuccess, documentId, existingSessionId }: 
             onClick={handleSend}
             disabled={!input.trim() || isProcessing || !sessionId}
             size="icon"
-            className="flex-shrink-0 h-[60px]"
+            className="flex-shrink-0 h-[60px] relative"
             data-testid="button-send-message"
           >
             {isProcessing ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
+              <div className="flex flex-col items-center gap-1">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-[9px] font-medium">Processing</span>
+              </div>
             ) : (
               <Send className="w-4 h-4" />
             )}
