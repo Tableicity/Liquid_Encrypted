@@ -34,7 +34,7 @@ The Liquid Encrypted Data System is a security platform that utilizes quantum-re
 - **Role-Based Access Control (RBAC)**: 5-tier role system (`customer`, `support`, `billing_admin`, `super_admin`, `owner`) enforced by security middleware (`requireAuth`, `requireRole`, `assertDocumentAccess`).
 - **Security Logging**: Comprehensive audit logging for unauthorized access attempts, document access denials, and critical system actions.
 - **Horizontal Privilege Escalation Prevention**: Enforced document ownership checks.
-- **Storage Quota Enforcement**: Automatic grace period management with 7-day enforcement windows. When users exceed their storage quota, the system creates a grace period that automatically expires 7 days later. Includes support for warning email tracking and status management (active/resolved/expired).
+- **Storage Quota Enforcement**: Byte-precise quota tracking using dual-field architecture (usedBytes/quotaBytes for enforcement, usedGb/allocatedGb for display) eliminates ~5MB rounding errors. Automatic grace period management with 7-day enforcement windows. When users exceed their storage quota, the system creates a grace period that automatically expires 7 days later. Pre-upload middleware enforces three-tier checks (under quota, within grace period, expired grace period). Atomic storage operations protect against concurrent upload race conditions. Includes support for warning email tracking and status management (active/resolved/expired).
 
 ### Feature Specifications
 - Document upload with automatic fragmentation and encryption.
