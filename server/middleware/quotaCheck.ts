@@ -52,15 +52,21 @@ export async function checkStorageQuota(
     const quotaBytes = quotaGb * 1024 * 1024 * 1024;
 
     // STEP 2: Get current storage usage
+    let usedBytes: number;
     const storageUsage = await storage.getStorageUsageByUserId(userId);
     
     if (!storageUsage) {
-      return res.status(500).json({ 
-        error: 'Storage quota not initialized. Please contact support.' 
-      });
+      // Fallback: Calculate usage directly from documents for quota check
+      // Note: This is a read-only check - storage_usage will be initialized
+      // atomically by the upload route's atomicIncrementStorageUsage call
+      // Use exact bytes from documents to avoid rounding errors
+      const docs = await storage.getDocumentsByUserId(userId);
+      usedBytes = docs.reduce((sum, doc) => sum + doc.size, 0);
+    } else {
+      // Use storage_usage record (preferred path for performance)
+      usedBytes = parseFloat(storageUsage.usedGb || '0') * 1024 * 1024 * 1024;
     }
 
-    const usedBytes = parseFloat(storageUsage.usedGb || '0') * 1024 * 1024 * 1024;
     const projectedUsage = usedBytes + fileSize;
 
     // STEP 3: Check if upload would exceed quota
