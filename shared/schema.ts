@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, decimal, inet } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, decimal, inet, bigint } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 
@@ -61,11 +61,17 @@ export const subscriptions = pgTable("subscriptions", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-// Storage Usage Tracking
+// Storage Usage Tracking - Byte-precise with GB display fields
 export const storageUsage = pgTable("storage_usage", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 255 }).notNull().unique().references(() => users.id, { onDelete: "cascade" }),
   subscriptionId: varchar("subscription_id", { length: 255 }).references(() => subscriptions.id, { onDelete: "cascade" }),
+  
+  // Byte-precise fields (source of truth for quota enforcement)
+  usedBytes: bigint("used_bytes", { mode: "number" }).notNull().default(0),
+  quotaBytes: bigint("quota_bytes", { mode: "number" }).notNull(),
+  
+  // GB fields for display and backward compatibility
   allocatedGb: integer("allocated_gb").notNull(),
   usedGb: decimal("used_gb", { precision: 10, scale: 2 }).default(sql`0`),
   documentCount: integer("document_count").default(0),
