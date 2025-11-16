@@ -112,10 +112,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: "customer", // Default role for new signups
       });
 
-      // Create default storage usage record
+      // Create default storage usage record (byte-precise)
       await storage.createStorageUsage({
         userId: user.id,
-        allocatedGb: 0, // No storage until they subscribe
+        usedBytes: 0,
+        quotaBytes: 0, // No storage until they subscribe
+        allocatedGb: 0,
         usedGb: "0",
         documentCount: 0,
       });
@@ -539,7 +541,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const quotaGb = plan.storageBaseGb + (subscription.storageAddonGb || 0);
-      const fileGb = fileSize / (1024 * 1024 * 1024);
+      const quotaBytes = quotaGb * 1024 * 1024 * 1024;
 
       // Create document record with user ownership
       const doc = await storage.createDocument({
@@ -567,23 +569,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "Failed to update document" });
       }
 
-      // Atomically increment storage usage and get final total
+      // Atomically increment storage usage and get final total (byte-precise)
       const updatedUsage = await storage.atomicIncrementStorageUsage(
         userId,
         subscription.id,
-        quotaGb,
-        fileGb
+        quotaBytes,
+        fileSize
       );
 
-      // Post-increment quota check (protects against concurrent uploads)
-      const finalUsedGb = parseFloat(updatedUsage.usedGb || '0');
-      if (finalUsedGb > quotaGb) {
+      // Post-increment quota check (protects against concurrent uploads, byte-precise)
+      const finalUsedBytes = updatedUsage.usedBytes || 0;
+      if (finalUsedBytes > quotaBytes) {
         // Concurrent upload pushed us over quota - rollback this upload
         await storage.deleteDocument(doc.id);
         await storage.deleteFragmentsByDocumentId(doc.id);
         
-        // Atomically rollback storage usage increment
-        await storage.atomicDecrementStorageUsage(userId, fileGb);
+        // Atomically rollback storage usage increment (byte-precise)
+        await storage.atomicDecrementStorageUsage(userId, fileSize);
         
         await createAuditLog(storage, {
           actorId: userId,
@@ -597,8 +599,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           metadata: {
             fileName,
             fileSize,
-            finalUsage: finalUsedGb.toFixed(2),
-            quota: quotaGb,
+            finalUsageBytes: finalUsedBytes,
+            quotaBytes: quotaBytes,
             message: "Concurrent upload caused quota breach, rolled back"
           }
         });
@@ -607,7 +609,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           error: "Storage quota exceeded during upload",
           message: "Another upload completed while this was processing. Please try again.",
           details: {
-            currentUsage: finalUsedGb.toFixed(2) + " GB",
+            currentUsage: (finalUsedBytes / (1024**3)).toFixed(2) + " GB",
             quota: quotaGb + " GB",
           }
         });
@@ -667,14 +669,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Delete document
       await storage.deleteDocument(req.params.id);
 
-      // Update storage usage
-      const currentUsage = await storage.getStorageUsageByUserId(userId);
-      if (currentUsage && doc.userId === userId) {
-        const usedGb = Math.max(0, parseFloat(currentUsage.usedGb || '0') - (doc.size / (1024 * 1024 * 1024)));
-        await storage.updateStorageUsage(userId, {
-          usedGb: usedGb.toFixed(2),
-          documentCount: Math.max(0, (currentUsage.documentCount || 0) - 1),
-        });
+      // Atomically decrement storage usage (byte-precise)
+      if (doc.userId === userId) {
+        await storage.atomicDecrementStorageUsage(userId, doc.size);
       }
 
       // Check if deletion resolved grace period

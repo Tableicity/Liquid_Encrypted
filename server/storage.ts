@@ -353,25 +353,28 @@ export class PostgresStorage implements IStorage {
   async atomicIncrementStorageUsage(
     userId: string,
     subscriptionId: string,
-    allocatedGb: number,
-    fileSizeGb: number
+    quotaBytes: number,
+    fileSizeBytes: number
   ): Promise<StorageUsage> {
     // Single atomic UPSERT: creates record if missing, increments if exists
-    // Uses Drizzle's sql template for proper typing and parameterization
+    // Uses byte-precise tracking with auto-calculated GB fields for display
     const id = randomUUID();
-    const fileSizeGbStr = fileSizeGb.toFixed(2);
+    const allocatedGb = Math.round((quotaBytes / (1024 * 1024 * 1024)) * 100) / 100;
     
     const result = await db.execute(drizzleSql`
       INSERT INTO storage_usage (
-        id, user_id, subscription_id, allocated_gb, used_gb, document_count, last_calculated
+        id, user_id, subscription_id, used_bytes, quota_bytes, allocated_gb, used_gb, document_count, last_calculated
       )
       VALUES (
-        ${id}, ${userId}, ${subscriptionId}, ${allocatedGb}, ${fileSizeGbStr}, 1, NOW()
+        ${id}, ${userId}, ${subscriptionId}, ${fileSizeBytes}, ${quotaBytes}, ${allocatedGb}, 
+        ROUND((${fileSizeBytes}::numeric / 1024 / 1024 / 1024)::numeric, 2), 1, NOW()
       )
       ON CONFLICT (user_id) DO UPDATE SET
-        used_gb = CAST(storage_usage.used_gb AS NUMERIC) + CAST(${fileSizeGbStr} AS NUMERIC),
+        used_bytes = storage_usage.used_bytes + ${fileSizeBytes},
+        used_gb = ROUND((storage_usage.used_bytes + ${fileSizeBytes})::numeric / 1024 / 1024 / 1024, 2),
         document_count = storage_usage.document_count + 1,
-        allocated_gb = GREATEST(storage_usage.allocated_gb, ${allocatedGb}),
+        quota_bytes = ${quotaBytes},
+        allocated_gb = ${allocatedGb},
         last_calculated = NOW()
       RETURNING *
     `);
@@ -386,6 +389,8 @@ export class PostgresStorage implements IStorage {
       id: row.id,
       userId: row.user_id,
       subscriptionId: row.subscription_id,
+      usedBytes: parseInt(row.used_bytes),
+      quotaBytes: parseInt(row.quota_bytes),
       allocatedGb: parseInt(row.allocated_gb),
       usedGb: row.used_gb,
       documentCount: parseInt(row.document_count),
@@ -395,15 +400,14 @@ export class PostgresStorage implements IStorage {
 
   async atomicDecrementStorageUsage(
     userId: string,
-    fileSizeGb: number
+    fileSizeBytes: number
   ): Promise<StorageUsage> {
-    // Atomic decrement for quota rollback (e.g., when upload fails after increment)
-    const fileSizeGbStr = fileSizeGb.toFixed(2);
-    
+    // Atomic decrement for quota rollback (byte-precise with GB display update)
     const result = await db.execute(drizzleSql`
       UPDATE storage_usage 
       SET 
-        used_gb = GREATEST(CAST(used_gb AS NUMERIC) - CAST(${fileSizeGbStr} AS NUMERIC), 0),
+        used_bytes = GREATEST(used_bytes - ${fileSizeBytes}, 0),
+        used_gb = ROUND(GREATEST((used_bytes - ${fileSizeBytes})::numeric, 0) / 1024 / 1024 / 1024, 2),
         document_count = GREATEST(document_count - 1, 0),
         last_calculated = NOW()
       WHERE user_id = ${userId}
@@ -420,6 +424,8 @@ export class PostgresStorage implements IStorage {
       id: row.id,
       userId: row.user_id,
       subscriptionId: row.subscription_id,
+      usedBytes: parseInt(row.used_bytes),
+      quotaBytes: parseInt(row.quota_bytes),
       allocatedGb: parseInt(row.allocated_gb),
       usedGb: row.used_gb,
       documentCount: parseInt(row.document_count),

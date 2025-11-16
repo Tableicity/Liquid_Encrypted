@@ -51,7 +51,7 @@ export async function checkStorageQuota(
     const quotaGb = plan.storageBaseGb + (subscription.storageAddonGb || 0);
     const quotaBytes = quotaGb * 1024 * 1024 * 1024;
 
-    // STEP 2: Get current storage usage
+    // STEP 2: Get current storage usage (byte-precise)
     let usedBytes: number;
     const storageUsage = await storage.getStorageUsageByUserId(userId);
     
@@ -59,12 +59,11 @@ export async function checkStorageQuota(
       // Fallback: Calculate usage directly from documents for quota check
       // Note: This is a read-only check - storage_usage will be initialized
       // atomically by the upload route's atomicIncrementStorageUsage call
-      // Use exact bytes from documents to avoid rounding errors
       const docs = await storage.getDocumentsByUserId(userId);
       usedBytes = docs.reduce((sum, doc) => sum + doc.size, 0);
     } else {
-      // Use storage_usage record (preferred path for performance)
-      usedBytes = parseFloat(storageUsage.usedGb || '0') * 1024 * 1024 * 1024;
+      // Use byte-precise field (no rounding errors!)
+      usedBytes = storageUsage.usedBytes || 0;
     }
 
     const projectedUsage = usedBytes + fileSize;
@@ -248,7 +247,8 @@ export async function checkGracePeriodResolution(userId: string) {
 
     const quotaGb = plan.storageBaseGb + (subscription.storageAddonGb || 0);
     const quotaBytes = quotaGb * 1024 * 1024 * 1024;
-    const usedBytes = parseFloat(storageUsage.usedGb || '0') * 1024 * 1024 * 1024;
+    // Use byte-precise field (no rounding errors!)
+    const usedBytes = storageUsage.usedBytes || 0;
 
     // If user is now under quota and has active grace period, resolve it
     if (usedBytes < quotaBytes) {
