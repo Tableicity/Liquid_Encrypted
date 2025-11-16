@@ -5,7 +5,7 @@ import type {
   Subscription, InsertSubscription,
   SubscriptionPlan,
   StorageUsage, InsertStorageUsage,
-  GracePeriod, InsertGracePeriod,
+  GracePeriod, InsertGracePeriod, CreateGracePeriodParams,
   Payment, InsertPayment,
   AuditLog, InsertAuditLog
 } from "@shared/schema";
@@ -72,7 +72,7 @@ export interface IStorage {
 
   // Grace Period operations (quota enforcement)
   getActiveGracePeriodByUserId(userId: string): Promise<GracePeriod | undefined>;
-  createGracePeriod(gracePeriod: InsertGracePeriod): Promise<GracePeriod>;
+  createGracePeriod(params: CreateGracePeriodParams): Promise<GracePeriod>;
   updateGracePeriod(id: string, updates: Partial<GracePeriod>): Promise<GracePeriod | undefined>;
   resolveGracePeriod(userId: string): Promise<boolean>;
 
@@ -438,22 +438,25 @@ export class PostgresStorage implements IStorage {
     return result[0];
   }
 
-  async createGracePeriod(gracePeriod: InsertGracePeriod): Promise<GracePeriod> {
+  async createGracePeriod(params: CreateGracePeriodParams): Promise<GracePeriod> {
     const id = randomUUID();
     
     // Calculate grace period end: 7 days from quotaExceededAt (or now if not provided)
-    const quotaExceededDate = gracePeriod.quotaExceededAt || new Date();
-    const gracePeriodEnd = new Date(quotaExceededDate);
-    gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 7); // Add 7 days
+    const quotaExceededDate = params.quotaExceededAt || new Date();
+    const gracePeriodEnd = params.gracePeriodEnd || (() => {
+      const end = new Date(quotaExceededDate);
+      end.setDate(end.getDate() + 7); // Add 7 days
+      return end;
+    })();
     
     const result = await db
       .insert(gracePeriods)
       .values({
         id,
-        userId: gracePeriod.userId,
+        userId: params.userId,
         quotaExceededAt: quotaExceededDate,
-        gracePeriodEnd, // Automatically calculated - cannot be overridden
-        warningEmailsSent: gracePeriod.warningEmailsSent || 0,
+        gracePeriodEnd, // Automatically calculated unless overridden
+        warningEmailsSent: params.warningEmailsSent || 0,
         status: "active",
       })
       .returning();

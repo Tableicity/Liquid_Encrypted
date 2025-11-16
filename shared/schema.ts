@@ -199,6 +199,11 @@ export type InsertStorageUsage = typeof storageUsage.$inferInsert;
 export type GracePeriod = typeof gracePeriods.$inferSelect;
 export type InsertGracePeriod = typeof gracePeriods.$inferInsert;
 
+// Reduced input type for grace period creation (gracePeriodEnd is auto-calculated)
+export type CreateGracePeriodParams = Omit<InsertGracePeriod, "gracePeriodEnd" | "status" | "resolvedAt"> & {
+  gracePeriodEnd?: Date; // Optional override, defaults to quotaExceededAt + 7 days
+};
+
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = typeof payments.$inferInsert;
 
@@ -242,7 +247,7 @@ export const insertUserSchema = createInsertSchema(users).omit({ id: true, creat
 export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStorageUsageSchema = createInsertSchema(storageUsage).omit({ id: true, lastCalculated: true });
-export const insertGracePeriodSchema = createInsertSchema(gracePeriods).omit({ id: true, createdAt: true, updatedAt: true, quotaExceededAt: true });
+export const insertGracePeriodSchema = createInsertSchema(gracePeriods).omit({ id: true, createdAt: true, updatedAt: true, quotaExceededAt: true, gracePeriodEnd: true, status: true, resolvedAt: true });
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 export const insertDocumentSchema = createInsertSchema(documents).omit({ id: true, uploadedAt: true });

@@ -8,6 +8,7 @@ import { storage } from "./storage";
 import { liquifyDocument, reconstituteDocument } from "./liquification";
 import { StripeService, stripe } from "./stripe-service";
 import { requireAuth, requireRole, hasPermission, assertDocumentAccess, type AuthRequest } from "./middleware";
+import { checkStorageQuota, checkGracePeriodResolution } from "./middleware/quotaCheck";
 import { registerAdminRoutes } from "./admin-routes";
 import { 
   insertDocumentSchema, 
@@ -37,7 +38,7 @@ if (!process.env.SESSION_SECRET) {
 }
 const JWT_SECRET: string = process.env.SESSION_SECRET;
 
-// Extend Express Request to include user (now handled by middleware.ts)
+// Extend Express Request to include user (now handled by middleware.ts) and grace period warning
 declare global {
   namespace Express {
     interface Request {
@@ -45,6 +46,15 @@ declare global {
       userEmail?: string;
       userRole?: string;
       userPermissions?: Record<string, any>;
+      gracePeriodWarning?: {
+        within_grace_period: boolean;
+        grace_period_end: string;
+        days_remaining: number;
+        current_usage_gb: string;
+        quota_gb: string;
+        overage_gb: string;
+        first_time?: boolean;
+      };
     }
   }
 }
@@ -503,7 +513,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Upload and liquify document (requires authentication and customer role)
-  app.post("/api/documents/upload", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), upload.single("file"), async (req, res) => {
+  app.post("/api/documents/upload", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), checkStorageQuota, upload.single("file"), async (req, res) => {
     try {
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
@@ -516,61 +526,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // @ts-ignore - userId guaranteed by requireAuth middleware
       const userId: string = req.userId;
 
-      // Check active subscription FIRST (required for all uploads)
+      // Note: Quota check is now handled by checkStorageQuota middleware
+      // Subscription check is also handled by the middleware - subscription should never be null here
       const subscription = await storage.getSubscriptionByUserId(userId);
-      if (!subscription || subscription.status !== 'active') {
-        return res.status(403).json({ 
-          error: "Active subscription required",
-          message: "Please subscribe to a plan to upload documents"
-        });
+      if (!subscription) {
+        return res.status(500).json({ error: "Subscription not found after quota check" });
       }
-
-      // Get subscription plan to calculate quota
+      
       const plan = await storage.getSubscriptionPlan(subscription.planId);
       if (!plan) {
         return res.status(500).json({ error: "Subscription plan not found" });
       }
-
-      // Calculate total quota: base storage + addon storage
+      
       const quotaGb = plan.storageBaseGb + (subscription.storageAddonGb || 0);
       const fileGb = fileSize / (1024 * 1024 * 1024);
-
-      // Check current storage usage
-      const currentUsage = await storage.getStorageUsageByUserId(userId);
-      const currentUsedGb = currentUsage ? parseFloat(currentUsage.usedGb || '0') : 0;
-
-      // Enforce quota
-      if (currentUsedGb + fileGb > quotaGb) {
-        // Log quota rejection for monitoring
-        await createAuditLog(storage, {
-          actorId: userId,
-          actorEmail: req.userEmail,
-          actorRole: req.userRole,
-          action: "QUOTA_EXCEEDED",
-          resourceType: "document",
-          result: "denied",
-          ipAddress: req.ip,
-          userAgent: req.headers["user-agent"],
-          metadata: {
-            fileName,
-            fileSize,
-            currentUsage: currentUsedGb.toFixed(2),
-            quota: quotaGb,
-            planName: plan.name,
-          }
-        });
-
-        return res.status(403).json({ 
-          error: "Storage quota exceeded",
-          details: {
-            currentUsage: currentUsedGb.toFixed(2) + " GB",
-            fileSize: fileGb.toFixed(2) + " GB",
-            quota: quotaGb + " GB",
-            planName: plan.name,
-            upgradeHint: quotaGb < 100 ? "Upgrade to Business plan for 100 GB" : null,
-          }
-        });
-      }
 
       // Create document record with user ownership
       const doc = await storage.createDocument({
@@ -647,7 +616,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create comprehensive audit log for successful document upload
       await auditDocumentUpload(storage, userId, req.userEmail!, doc.id, fileName, fileSize, req);
 
-      res.json(toPublicDocument(updatedDoc));
+      // Build response with optional grace period warning
+      const response: any = {
+        success: true,
+        document: toPublicDocument(updatedDoc)
+      };
+
+      // Add grace period warning if present (from checkStorageQuota middleware)
+      if (req.gracePeriodWarning) {
+        response.warning = {
+          type: 'quota_exceeded',
+          message: req.gracePeriodWarning.first_time 
+            ? `Storage quota exceeded. You have a ${req.gracePeriodWarning.days_remaining}-day grace period to upgrade or free up space.`
+            : `You are in a grace period. ${req.gracePeriodWarning.days_remaining} days remaining to resolve storage overage.`,
+          details: req.gracePeriodWarning,
+          actions: {
+            upgrade_url: '/subscription/upgrade',
+            manage_files_url: '/documents'
+          }
+        };
+      }
+
+      res.json(response);
     } catch (error) {
       console.error("Error uploading document:", error);
       res.status(500).json({ error: "Failed to upload document" });
@@ -687,10 +677,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Check if deletion resolved grace period
+      const gracePeriodResolved = await checkGracePeriodResolution(userId);
+
       // Create comprehensive audit log for document deletion
       await auditDocumentDelete(storage, userId, req.userEmail!, doc.id, doc.name, req);
 
-      res.json({ success: true });
+      const response: any = {
+        success: true
+      };
+
+      if (gracePeriodResolved) {
+        response.info = {
+          message: 'Your storage is now under quota. Grace period has been resolved.',
+          grace_period_resolved: true
+        };
+      }
+
+      res.json(response);
     } catch (error) {
       console.error("Error deleting document:", error);
       res.status(500).json({ error: "Failed to delete document" });
