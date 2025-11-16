@@ -5,6 +5,7 @@ import type {
   Subscription, InsertSubscription,
   SubscriptionPlan,
   StorageUsage, InsertStorageUsage,
+  GracePeriod, InsertGracePeriod,
   Payment, InsertPayment,
   AuditLog, InsertAuditLog
 } from "@shared/schema";
@@ -14,7 +15,7 @@ import postgres from "postgres";
 import { 
   documents, fragments, chatSessions, 
   users, subscriptions, subscriptionPlans,
-  storageUsage, payments, auditLogs
+  storageUsage, gracePeriods, payments, auditLogs
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -68,6 +69,12 @@ export interface IStorage {
   atomicIncrementStorageUsage(userId: string, subscriptionId: string, allocatedGb: number, fileSizeGb: number): Promise<StorageUsage>;
   // Atomic decrement for upload rollback
   atomicDecrementStorageUsage(userId: string, fileSizeGb: number): Promise<StorageUsage>;
+
+  // Grace Period operations (quota enforcement)
+  getActiveGracePeriodByUserId(userId: string): Promise<GracePeriod | undefined>;
+  createGracePeriod(gracePeriod: InsertGracePeriod): Promise<GracePeriod>;
+  updateGracePeriod(id: string, updates: Partial<GracePeriod>): Promise<GracePeriod | undefined>;
+  resolveGracePeriod(userId: string): Promise<boolean>;
 
   // Payment operations
   getPayment(id: string): Promise<Payment | undefined>;
@@ -418,6 +425,61 @@ export class PostgresStorage implements IStorage {
       documentCount: parseInt(row.document_count),
       lastCalculated: row.last_calculated,
     };
+  }
+
+  // Grace Period operations (quota enforcement)
+  async getActiveGracePeriodByUserId(userId: string): Promise<GracePeriod | undefined> {
+    const result = await db
+      .select()
+      .from(gracePeriods)
+      .where(and(eq(gracePeriods.userId, userId), eq(gracePeriods.status, "active")))
+      .orderBy(desc(gracePeriods.createdAt))
+      .limit(1);
+    return result[0];
+  }
+
+  async createGracePeriod(gracePeriod: InsertGracePeriod): Promise<GracePeriod> {
+    const id = randomUUID();
+    
+    // Calculate grace period end: 7 days from quotaExceededAt (or now if not provided)
+    const quotaExceededDate = gracePeriod.quotaExceededAt || new Date();
+    const gracePeriodEnd = new Date(quotaExceededDate);
+    gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 7); // Add 7 days
+    
+    const result = await db
+      .insert(gracePeriods)
+      .values({
+        id,
+        userId: gracePeriod.userId,
+        quotaExceededAt: quotaExceededDate,
+        gracePeriodEnd, // Automatically calculated - cannot be overridden
+        warningEmailsSent: gracePeriod.warningEmailsSent || 0,
+        status: "active",
+      })
+      .returning();
+    return result[0];
+  }
+
+  async updateGracePeriod(id: string, updates: Partial<GracePeriod>): Promise<GracePeriod | undefined> {
+    const result = await db
+      .update(gracePeriods)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(gracePeriods.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async resolveGracePeriod(userId: string): Promise<boolean> {
+    const result = await db
+      .update(gracePeriods)
+      .set({ 
+        status: "resolved", 
+        resolvedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(and(eq(gracePeriods.userId, userId), eq(gracePeriods.status, "active")))
+      .returning();
+    return result.length > 0;
   }
 
   // Payment operations

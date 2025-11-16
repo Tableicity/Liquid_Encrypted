@@ -72,6 +72,19 @@ export const storageUsage = pgTable("storage_usage", {
   lastCalculated: timestamp("last_calculated").notNull().defaultNow(),
 });
 
+// Grace Periods - Track 7-day grace periods when users exceed storage quota
+export const gracePeriods = pgTable("grace_periods", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  quotaExceededAt: timestamp("quota_exceeded_at").notNull().defaultNow(),
+  gracePeriodEnd: timestamp("grace_period_end").notNull(),
+  warningEmailsSent: integer("warning_emails_sent").default(0),
+  status: varchar("status", { length: 20 }).notNull().default("active"), // 'active', 'resolved', 'expired'
+  resolvedAt: timestamp("resolved_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Payments & Billing
 export const payments = pgTable("payments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -183,6 +196,9 @@ export type InsertSubscription = typeof subscriptions.$inferInsert;
 export type StorageUsage = typeof storageUsage.$inferSelect;
 export type InsertStorageUsage = typeof storageUsage.$inferInsert;
 
+export type GracePeriod = typeof gracePeriods.$inferSelect;
+export type InsertGracePeriod = typeof gracePeriods.$inferInsert;
+
 export type Payment = typeof payments.$inferSelect;
 export type InsertPayment = typeof payments.$inferInsert;
 
@@ -226,6 +242,7 @@ export const insertUserSchema = createInsertSchema(users).omit({ id: true, creat
 export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStorageUsageSchema = createInsertSchema(storageUsage).omit({ id: true, lastCalculated: true });
+export const insertGracePeriodSchema = createInsertSchema(gracePeriods).omit({ id: true, createdAt: true, updatedAt: true, quotaExceededAt: true });
 export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true, createdAt: true });
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 export const insertDocumentSchema = createInsertSchema(documents).omit({ id: true, uploadedAt: true });
