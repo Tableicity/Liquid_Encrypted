@@ -204,6 +204,26 @@ export class StripeService {
       billingCycle: "monthly",
     });
 
+    // Update storage quota based on plan (byte-precise)
+    // Ensure storageBaseGb is numeric (it may be stored as string from decimal type)
+    const storageBaseGb = Number(plan.storageBaseGb);
+    const quotaBytes = storageBaseGb * 1024 * 1024 * 1024;
+    const existingUsage = await this.storage.getStorageUsageByUserId(userId);
+    if (existingUsage) {
+      await this.storage.updateStorageUsage(existingUsage.id, {
+        quotaBytes,
+        allocatedGb: storageBaseGb,
+      });
+    } else {
+      await this.storage.createStorageUsage({
+        userId,
+        usedBytes: 0,
+        quotaBytes,
+        usedGb: "0",
+        allocatedGb: storageBaseGb,
+      });
+    }
+
     // Create comprehensive audit log
     await createAuditLog(this.storage, {
       actorId: userId,

@@ -17,7 +17,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut, Loader2 } from "lucide-react";
+import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut, Loader2, CreditCard } from "lucide-react";
 import { isAuthenticated, removeToken } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import Dashboard from "@/pages/Dashboard";
@@ -27,13 +27,16 @@ import Architecture from "@/pages/Architecture";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Subscribe from "@/pages/Subscribe";
+import Billing from "@/pages/Billing";
 
-type Page = "dashboard" | "upload" | "documents" | "architecture";
+type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing";
 type AuthView = "login" | "signup";
 
-interface Subscription {
-  id: string;
-  status: string;
+interface SubscriptionResponse {
+  subscription: {
+    id: string;
+    status: string;
+  } | null;
 }
 
 function AppContent() {
@@ -64,11 +67,13 @@ function AppContent() {
     }
   }, [toast]);
 
-  const { data: subscription, isLoading: subscriptionLoading, error: subscriptionError } = useQuery<Subscription | null>({
+  const { data: subscriptionData, isLoading: subscriptionLoading, error: subscriptionError } = useQuery<SubscriptionResponse>({
     queryKey: ["/api/subscriptions/current"],
     enabled: authenticated,
     retry: false,
   });
+  
+  const subscription = subscriptionData?.subscription;
 
   // Handle invalid/expired token
   useEffect(() => {
@@ -92,7 +97,8 @@ function AppContent() {
 
   const handleLogin = () => {
     setAuthenticated(true);
-    setNeedsSubscription(true);
+    // Invalidate subscription query to force fresh check
+    queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
   };
 
   const handleSubscriptionComplete = () => {
@@ -111,6 +117,7 @@ function AppContent() {
     { title: "Dashboard", page: "dashboard" as const, icon: Home },
     { title: "Upload", page: "upload" as const, icon: UploadIcon },
     { title: "Documents", page: "documents" as const, icon: FileText },
+    { title: "Billing", page: "billing" as const, icon: CreditCard },
     { title: "Architecture", page: "architecture" as const, icon: BookOpen },
   ];
 
@@ -129,8 +136,9 @@ function AppContent() {
   }
 
   // Determine if user needs to subscribe
+  // Show subscription page if user has no subscription or subscription is not active
   const hasActiveSubscription = subscription && subscription.status === "active";
-  const showSubscriptionPage = authenticated && needsSubscription && !hasActiveSubscription;
+  const showSubscriptionPage = authenticated && !subscriptionLoading && !hasActiveSubscription;
 
   return (
     <>
@@ -208,6 +216,7 @@ function AppContent() {
                 {currentPage === "architecture" && (
                   <Architecture onNavigate={setCurrentPage} />
                 )}
+                {currentPage === "billing" && <Billing />}
               </main>
             </div>
           </div>

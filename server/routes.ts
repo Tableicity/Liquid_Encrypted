@@ -472,6 +472,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ========== Storage Routes ==========
+  // Get current user's storage usage
+  app.get("/api/storage/usage", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req: AuthRequest, res) => {
+    try {
+      const userId = req.userId!;
+      const storageUsage = await storage.getStorageUsageByUserId(userId);
+      
+      if (!storageUsage) {
+        // Return zero usage if no record exists
+        return res.json({
+          usedGb: 0,
+          allocatedGb: 0,
+          usedBytes: 0,
+          quotaBytes: 0,
+          percentUsed: 0,
+        });
+      }
+      
+      const usedBytes = storageUsage.usedBytes || 0;
+      const quotaBytes = storageUsage.quotaBytes || 0;
+      const usedGb = usedBytes / (1024 * 1024 * 1024);
+      const allocatedGb = quotaBytes / (1024 * 1024 * 1024);
+      const percentUsed = quotaBytes > 0 ? (usedBytes / quotaBytes) * 100 : 0;
+      
+      res.json({
+        usedGb: parseFloat(usedGb.toFixed(4)),
+        allocatedGb: parseFloat(allocatedGb.toFixed(2)),
+        usedBytes,
+        quotaBytes,
+        percentUsed: parseFloat(percentUsed.toFixed(2)),
+      });
+    } catch (error) {
+      console.error("Error fetching storage usage:", error);
+      res.status(500).json({ error: "Failed to fetch storage usage" });
+    }
+  });
+
   // ========== Document Routes ==========
   // Get all documents (without encryption keys) - Protected by customer role
   app.get("/api/documents", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
