@@ -15,6 +15,7 @@ interface DocumentCardProps {
   onView: () => void;
   onDownload: () => void;
   onDelete: () => void;
+  onLock?: () => void;
 }
 
 const statusConfig = {
@@ -44,6 +45,7 @@ export function DocumentCard({
   onView,
   onDownload,
   onDelete,
+  onLock,
 }: DocumentCardProps) {
   const config = statusConfig[status];
   const StatusIcon = config.icon;
@@ -102,6 +104,17 @@ export function DocumentCard({
         >
           <Download className="w-3 h-3" />
         </Button>
+        {status === "accessible" && onLock && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onLock}
+            data-testid="button-lock"
+            title="Return to liquid state"
+          >
+            <Lock className="w-3 h-3" />
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"

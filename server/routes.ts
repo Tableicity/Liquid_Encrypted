@@ -760,6 +760,92 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Re-liquidate document (return accessible document to liquid state)
+  app.post("/api/documents/:id/liquidate", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
+    try {
+      const { sessionId } = req.body;
+
+      // Require authenticated session for story-based auth (mandatory)
+      if (!sessionId) {
+        return res.status(401).json({ error: "Session ID required. Please authenticate first." });
+      }
+
+      const session = await storage.getChatSession(sessionId);
+      if (!session) {
+        return res.status(404).json({ error: "Session not found" });
+      }
+      if (!session.authenticated) {
+        return res.status(403).json({ error: "Session not authenticated. Please complete authentication first." });
+      }
+      if (session.expiresAt && session.expiresAt < new Date()) {
+        return res.status(403).json({ error: "Session expired. Please authenticate again." });
+      }
+      
+      // CRITICAL: Verify session belongs to the requesting user (prevent cross-user session reuse)
+      if (session.userId && session.userId !== req.userId) {
+        await createAuditLog(storage, {
+          actorId: req.userId,
+          actorEmail: req.userEmail || "unknown",
+          actorRole: req.userRole || "customer",
+          action: "SECURITY_VIOLATION_SESSION_MISMATCH",
+          resourceId: sessionId,
+          resourceType: "chat_session",
+          result: "failure",
+          ipAddress: req.ip,
+          userAgent: req.headers["user-agent"],
+          metadata: { 
+            attemptedAction: "DOCUMENT_LIQUIDATE",
+            sessionOwner: session.userId
+          },
+        });
+        return res.status(403).json({ error: "Session does not belong to you" });
+      }
+
+      const doc = await storage.getDocument(req.params.id);
+      if (!doc) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      
+      // Check ownership using shared helper
+      const hasAccess = await assertDocumentAccess(req, doc, storage);
+      if (!hasAccess) {
+        return res.status(403).json({ error: "Access denied. You can only lock your own documents." });
+      }
+
+      // Only allow locking accessible documents
+      if (doc.status !== "accessible") {
+        return res.status(400).json({ error: "Document is already in liquid state" });
+      }
+
+      // Update document status back to liquid
+      await storage.updateDocument(req.params.id, {
+        status: "liquid",
+      });
+
+      // Create audit log for security tracking
+      await createAuditLog(storage, {
+        actorId: req.userId,
+        actorEmail: req.userEmail || "unknown",
+        actorRole: req.userRole || "customer",
+        action: "DOCUMENT_LIQUIDATED",
+        resourceId: doc.id,
+        resourceType: "document",
+        result: "success",
+        ipAddress: req.ip,
+        userAgent: req.headers["user-agent"],
+        metadata: { 
+          documentName: doc.name,
+          previousStatus: doc.status 
+        },
+      });
+
+      res.json({ success: true, message: "Document returned to liquid state" });
+    } catch (error) {
+      console.error("Error liquidating document:", error);
+      res.status(500).json({ error: "Failed to liquidate document" });
+    }
+  });
+
   // Create chat session (protected by customer role)
   // TODO: Integrate story-based authentication tokens for enhanced narrative verification
   app.post("/api/chat/session", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {

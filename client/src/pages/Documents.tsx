@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Search, Filter, ArrowLeft } from "lucide-react";
+import { Search, Filter, ArrowLeft, Download, X } from "lucide-react";
 import { DocumentCard } from "@/components/DocumentCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,10 @@ export default function Documents({ onNavigate }: DocumentsProps) {
     },
   });
 
+  const [viewData, setViewData] = useState<{ data: string; name: string; mimeType: string } | null>(null);
+  const [showViewDialog, setShowViewDialog] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"view" | "download" | "lock" | null>(null);
+
   const downloadMutation = useMutation({
     mutationFn: async ({ id, sessionId }: { id: string; sessionId: string }) => {
       const res = await apiRequest("POST", `/api/documents/${id}/reconstitute`, { sessionId });
@@ -117,6 +121,61 @@ export default function Documents({ onNavigate }: DocumentsProps) {
     },
   });
 
+  const viewMutation = useMutation({
+    mutationFn: async ({ id, sessionId }: { id: string; sessionId: string }) => {
+      const res = await apiRequest("POST", `/api/documents/${id}/reconstitute`, { sessionId });
+      return res.json();
+    },
+    onSuccess: (data: { data: string; name: string }) => {
+      // Determine MIME type from file extension
+      // Note: HTML files are NOT rendered inline for security (XSS prevention)
+      const ext = data.name.split('.').pop()?.toLowerCase() || '';
+      const mimeTypes: Record<string, string> = {
+        pdf: 'application/pdf',
+        png: 'image/png',
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        gif: 'image/gif',
+        txt: 'text/plain',
+        json: 'application/json',
+        // html intentionally omitted - security risk
+      };
+      const mimeType = mimeTypes[ext] || 'application/octet-stream';
+      
+      setViewData({ data: data.data, name: data.name, mimeType });
+      setShowViewDialog(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "View failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const lockMutation = useMutation({
+    mutationFn: async ({ id, sessionId }: { id: string; sessionId: string }) => {
+      const res = await apiRequest("POST", `/api/documents/${id}/liquidate`, { sessionId });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/documents"] });
+      toast({
+        title: "Document locked",
+        description: "The document has been returned to liquid state",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Lock failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
   const filteredDocs = documents.filter((doc) => {
     const matchesSearch = doc.name.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
@@ -124,8 +183,15 @@ export default function Documents({ onNavigate }: DocumentsProps) {
   });
 
   const handleView = (id: string) => {
-    setSelectedDoc(id);
-    setShowAuthDialog(true);
+    // If we have an authenticated session, view directly
+    if (authenticatedSessionId) {
+      viewMutation.mutate({ id, sessionId: authenticatedSessionId });
+    } else {
+      // Otherwise, open auth dialog first
+      setSelectedDoc(id);
+      setPendingAction("view");
+      setShowAuthDialog(true);
+    }
   };
 
   const handleDownload = (id: string) => {
@@ -135,19 +201,39 @@ export default function Documents({ onNavigate }: DocumentsProps) {
     } else {
       // Otherwise, open auth dialog first
       setSelectedDoc(id);
+      setPendingAction("download");
+      setShowAuthDialog(true);
+    }
+  };
+
+  const handleLock = (id: string) => {
+    // Lock requires authentication - prompt if no session
+    if (authenticatedSessionId) {
+      lockMutation.mutate({ id, sessionId: authenticatedSessionId });
+    } else {
+      // Open auth dialog first
+      setSelectedDoc(id);
+      setPendingAction("lock");
       setShowAuthDialog(true);
     }
   };
 
   const handleAuthSuccess = (sessionId: string) => {
-    // Store the authenticated session for future downloads
+    // Store the authenticated session for future actions
     setAuthenticatedSessionId(sessionId);
     
-    // Immediately download the selected document
+    // Execute the pending action
     if (selectedDoc) {
-      downloadMutation.mutate({ id: selectedDoc, sessionId });
+      if (pendingAction === "view") {
+        viewMutation.mutate({ id: selectedDoc, sessionId });
+      } else if (pendingAction === "download") {
+        downloadMutation.mutate({ id: selectedDoc, sessionId });
+      } else if (pendingAction === "lock") {
+        lockMutation.mutate({ id: selectedDoc, sessionId });
+      }
     }
     
+    setPendingAction(null);
     setShowAuthDialog(false);
   };
 
@@ -216,9 +302,9 @@ export default function Documents({ onNavigate }: DocumentsProps) {
               key={doc.id}
               id={doc.id}
               name={doc.name}
-              status={doc.status}
+              status={doc.status as "liquid" | "reconstituted" | "accessible"}
               fragmentCount={doc.fragmentCount}
-              lastAccessed={doc.lastAccessed ? formatTimestamp(doc.lastAccessed) : undefined}
+              lastAccessed={doc.lastAccessed ? formatTimestamp(new Date(doc.lastAccessed).toISOString()) : undefined}
               size={formatFileSize(doc.size)}
               onView={() => handleView(doc.id)}
               onDownload={() => handleDownload(doc.id)}
@@ -227,13 +313,21 @@ export default function Documents({ onNavigate }: DocumentsProps) {
                   deleteMutation.mutate(doc.id);
                 }
               }}
+              onLock={() => handleLock(doc.id)}
             />
           ))}
         </div>
       )}
 
       {/* Authentication Dialog */}
-      <Dialog open={showAuthDialog} onOpenChange={setShowAuthDialog}>
+      <Dialog open={showAuthDialog} onOpenChange={(open) => {
+        setShowAuthDialog(open);
+        if (!open) {
+          // Reset pending action when dialog is closed without completing auth
+          setPendingAction(null);
+          setSelectedDoc(null);
+        }
+      }}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
           <DialogHeader>
             <DialogTitle>Authenticate to Access Document</DialogTitle>
@@ -242,6 +336,92 @@ export default function Documents({ onNavigate }: DocumentsProps) {
             onAuthSuccess={handleAuthSuccess} 
             existingSessionId={authenticatedSessionId || undefined}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Document Viewer Dialog */}
+      <Dialog open={showViewDialog} onOpenChange={setShowViewDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden">
+          <DialogHeader className="flex flex-row items-center justify-between gap-2">
+            <DialogTitle className="truncate">{viewData?.name}</DialogTitle>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (viewData) {
+                    const byteCharacters = atob(viewData.data);
+                    const byteNumbers = new Array(byteCharacters.length);
+                    for (let i = 0; i < byteCharacters.length; i++) {
+                      byteNumbers[i] = byteCharacters.charCodeAt(i);
+                    }
+                    const byteArray = new Uint8Array(byteNumbers);
+                    const blob = new Blob([byteArray]);
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = viewData.name;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                  }
+                }}
+                data-testid="button-download-from-viewer"
+              >
+                <Download className="w-4 h-4 mr-1" />
+                Download
+              </Button>
+            </div>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto max-h-[70vh]">
+            {viewData && (
+              viewData.mimeType.startsWith('image/') ? (
+                <img 
+                  src={`data:${viewData.mimeType};base64,${viewData.data}`} 
+                  alt={viewData.name}
+                  className="max-w-full h-auto"
+                />
+              ) : viewData.mimeType === 'application/pdf' ? (
+                <iframe
+                  src={`data:${viewData.mimeType};base64,${viewData.data}`}
+                  className="w-full h-[70vh]"
+                  title={viewData.name}
+                />
+              ) : viewData.mimeType.startsWith('text/') || viewData.mimeType === 'application/json' ? (
+                <pre className="p-4 bg-muted rounded-md overflow-auto text-sm font-mono whitespace-pre-wrap">
+                  {atob(viewData.data)}
+                </pre>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <p className="mb-4">Preview not available for this file type</p>
+                  <Button
+                    onClick={() => {
+                      const byteCharacters = atob(viewData.data);
+                      const byteNumbers = new Array(byteCharacters.length);
+                      for (let i = 0; i < byteCharacters.length; i++) {
+                        byteNumbers[i] = byteCharacters.charCodeAt(i);
+                      }
+                      const byteArray = new Uint8Array(byteNumbers);
+                      const blob = new Blob([byteArray]);
+                      const url = window.URL.createObjectURL(blob);
+                      const a = document.createElement("a");
+                      a.href = url;
+                      a.download = viewData.name;
+                      document.body.appendChild(a);
+                      a.click();
+                      window.URL.revokeObjectURL(url);
+                      document.body.removeChild(a);
+                    }}
+                    data-testid="button-download-unsupported"
+                  >
+                    <Download className="w-4 h-4 mr-2" />
+                    Download File
+                  </Button>
+                </div>
+              )
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>
