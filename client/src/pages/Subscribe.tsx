@@ -53,7 +53,10 @@ function PaymentMethodForm({
         title: "Subscription Activated!",
         description: "Your subscription is now active. Redirecting...",
       });
-      setTimeout(() => onSuccess(), 1500);
+      // Force a full page reload to ensure all UI elements refresh properly
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
     },
     onError: (error: Error) => {
       toast({
