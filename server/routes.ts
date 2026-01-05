@@ -66,6 +66,24 @@ function toPublicDocument(doc: any): DocumentPublic {
 }
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // ========== Health Check for AWS ALB ==========
+  app.get("/healthz", async (req, res) => {
+    try {
+      const dbCheck = await storage.getAllSubscriptionPlans();
+      res.status(200).json({ 
+        status: "healthy", 
+        timestamp: new Date().toISOString(),
+        database: dbCheck.length > 0 ? "connected" : "empty"
+      });
+    } catch (error) {
+      res.status(503).json({ 
+        status: "unhealthy", 
+        timestamp: new Date().toISOString(),
+        error: "Database connection failed"
+      });
+    }
+  });
+
   // ========== Configuration Routes ==========
   
   // Get Stripe publishable key (returns test or live key based on STRIPE_MODE)
