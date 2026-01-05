@@ -7,7 +7,8 @@ import type {
   StorageUsage, InsertStorageUsage,
   GracePeriod, InsertGracePeriod, CreateGracePeriodParams,
   Payment, InsertPayment,
-  AuditLog, InsertAuditLog
+  AuditLog, InsertAuditLog,
+  QuotaWarning
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, and, desc, sql as drizzleSql } from "drizzle-orm";
@@ -15,7 +16,7 @@ import postgres from "postgres";
 import { 
   documents, fragments, chatSessions, 
   users, subscriptions, subscriptionPlans,
-  storageUsage, gracePeriods, payments, auditLogs
+  storageUsage, gracePeriods, payments, auditLogs, quotaWarnings
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -86,6 +87,12 @@ export interface IStorage {
   createAuditLog(log: InsertAuditLog): Promise<AuditLog>;
   getAuditLogsByUserId(userId: string, limit?: number): Promise<AuditLog[]>;
   getRecentAuditLogs(limit?: number): Promise<AuditLog[]>;
+
+  // Quota Warning operations
+  recordQuotaWarning(userId: string, warningLevel: 'warning_80' | 'warning_90' | 'warning_95'): Promise<QuotaWarning>;
+  getRecentQuotaWarning(userId: string, warningLevel: string, withinDays: number): Promise<QuotaWarning | undefined>;
+  getUsersAtThreshold(thresholdPercent: number): Promise<Array<{ userId: string; usedBytes: number; quotaBytes: number; user: User }>>;
+  getActiveGracePeriods(): Promise<Array<GracePeriod & { user: User }>>;
 }
 
 const client = postgres(process.env.DATABASE_URL!);
@@ -550,6 +557,88 @@ export class PostgresStorage implements IStorage {
       .from(auditLogs)
       .orderBy(desc(auditLogs.createdAt))
       .limit(limit);
+  }
+
+  // Quota Warning operations
+  async recordQuotaWarning(userId: string, warningLevel: 'warning_80' | 'warning_90' | 'warning_95'): Promise<QuotaWarning> {
+    const id = randomUUID();
+    const existing = await db
+      .select()
+      .from(quotaWarnings)
+      .where(and(eq(quotaWarnings.userId, userId), eq(quotaWarnings.warningLevel, warningLevel)))
+      .limit(1);
+    
+    if (existing.length > 0) {
+      const result = await db
+        .update(quotaWarnings)
+        .set({ 
+          sentAt: new Date(), 
+          emailCount: drizzleSql`${quotaWarnings.emailCount} + 1`,
+          updatedAt: new Date()
+        })
+        .where(and(eq(quotaWarnings.userId, userId), eq(quotaWarnings.warningLevel, warningLevel)))
+        .returning();
+      return result[0];
+    }
+
+    const result = await db
+      .insert(quotaWarnings)
+      .values({ id, userId, warningLevel })
+      .returning();
+    return result[0];
+  }
+
+  async getRecentQuotaWarning(userId: string, warningLevel: string, withinDays: number): Promise<QuotaWarning | undefined> {
+    const result = await db
+      .select()
+      .from(quotaWarnings)
+      .where(and(
+        eq(quotaWarnings.userId, userId),
+        eq(quotaWarnings.warningLevel, warningLevel),
+        drizzleSql`${quotaWarnings.sentAt} > NOW() - INTERVAL '${withinDays} days'`
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async getUsersAtThreshold(thresholdPercent: number): Promise<Array<{ userId: string; usedBytes: number; quotaBytes: number; user: User }>> {
+    const usageRecords = await db
+      .select()
+      .from(storageUsage)
+      .where(drizzleSql`${storageUsage.usedBytes} >= ${storageUsage.quotaBytes} * ${thresholdPercent / 100} AND ${storageUsage.usedBytes} < ${storageUsage.quotaBytes}`);
+    
+    const results = [];
+    for (const usage of usageRecords) {
+      const user = await this.getUser(usage.userId);
+      if (user) {
+        results.push({
+          userId: usage.userId,
+          usedBytes: usage.usedBytes,
+          quotaBytes: usage.quotaBytes,
+          user
+        });
+      }
+    }
+    return results;
+  }
+
+  async getActiveGracePeriods(): Promise<Array<GracePeriod & { user: User }>> {
+    const graceRecords = await db
+      .select()
+      .from(gracePeriods)
+      .where(and(
+        eq(gracePeriods.status, 'active'),
+        drizzleSql`${gracePeriods.updatedAt} < NOW() - INTERVAL '24 hours'`
+      ));
+    
+    const results = [];
+    for (const grace of graceRecords) {
+      const user = await this.getUser(grace.userId);
+      if (user) {
+        results.push({ ...grace, user });
+      }
+    }
+    return results;
   }
 }
 

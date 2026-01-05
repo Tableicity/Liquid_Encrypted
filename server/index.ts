@@ -4,6 +4,7 @@ import connectPg from "connect-pg-simple";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { storage } from "./storage";
+import { startQuotaWarningJob } from "./jobs/quotaWarnings";
 
 const app = express();
 
@@ -159,5 +160,9 @@ async function bootstrapOwnerAccount() {
     reusePort: true,
   }, () => {
     log(`serving on port ${port}`);
+    
+    // Start background jobs
+    startQuotaWarningJob();
+    log('[Server] Quota warning job started');
   });
 })();

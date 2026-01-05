@@ -91,6 +91,17 @@ export const gracePeriods = pgTable("grace_periods", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// Quota Warnings - Track when warning emails are sent at usage thresholds
+export const quotaWarnings = pgTable("quota_warnings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  warningLevel: varchar("warning_level", { length: 20 }).notNull(), // 'warning_80', 'warning_90', 'warning_95'
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+  emailCount: integer("email_count").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Payments & Billing
 export const payments = pgTable("payments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -204,6 +215,8 @@ export type InsertStorageUsage = typeof storageUsage.$inferInsert;
 
 export type GracePeriod = typeof gracePeriods.$inferSelect;
 export type InsertGracePeriod = typeof gracePeriods.$inferInsert;
+export type QuotaWarning = typeof quotaWarnings.$inferSelect;
+export type InsertQuotaWarning = typeof quotaWarnings.$inferInsert;
 
 // Reduced input type for grace period creation (gracePeriodEnd is auto-calculated)
 export type CreateGracePeriodParams = Omit<InsertGracePeriod, "gracePeriodEnd" | "status" | "resolvedAt"> & {
