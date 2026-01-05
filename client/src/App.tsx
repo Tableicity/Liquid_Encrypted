@@ -17,7 +17,7 @@ import {
   SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut, Loader2, CreditCard } from "lucide-react";
+import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut, Loader2, CreditCard, User } from "lucide-react";
 import { isAuthenticated, removeToken } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import Dashboard from "@/pages/Dashboard";
@@ -28,8 +28,9 @@ import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
 import Subscribe from "@/pages/Subscribe";
 import Billing from "@/pages/Billing";
+import Profile from "@/pages/Profile";
 
-type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing";
+type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing" | "profile";
 type AuthView = "login" | "signup";
 
 interface SubscriptionResponse {
@@ -117,6 +118,7 @@ function AppContent() {
     { title: "Dashboard", page: "dashboard" as const, icon: Home },
     { title: "Upload", page: "upload" as const, icon: UploadIcon },
     { title: "Documents", page: "documents" as const, icon: FileText },
+    { title: "Profile", page: "profile" as const, icon: User },
     { title: "Billing", page: "billing" as const, icon: CreditCard },
     { title: "Architecture", page: "architecture" as const, icon: BookOpen },
   ];
@@ -217,6 +219,7 @@ function AppContent() {
                   <Architecture onNavigate={setCurrentPage} />
                 )}
                 {currentPage === "billing" && <Billing />}
+                {currentPage === "profile" && <Profile />}
               </main>
             </div>
           </div>

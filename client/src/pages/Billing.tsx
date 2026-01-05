@@ -1,11 +1,26 @@
-import { useQuery } from "@tanstack/react-query";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
+import { loadStripe, type Stripe } from "@stripe/stripe-js";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
-import { Loader2, CreditCard, Calendar, HardDrive, Check, AlertTriangle } from "lucide-react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
+import { Loader2, CreditCard, Calendar, HardDrive, Check, AlertTriangle, ArrowUpRight, X } from "lucide-react";
 import { format } from "date-fns";
+
+let stripePromise: Promise<Stripe | null> | null = null;
 
 interface SubscriptionDetails {
   id: string;
@@ -20,13 +35,24 @@ interface SubscriptionDetails {
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;
   plan?: {
+    id: string;
     name: string;
     planType: string;
     storageBaseGb: number;
     maxDocuments: number | null;
     supportLevel: string;
     features: string[];
+    monthlyPrice: string;
   };
+}
+
+interface SubscriptionPlan {
+  id: string;
+  name: string;
+  planType: string;
+  monthlyPrice: string;
+  storageBaseGb: number;
+  features: string[];
 }
 
 interface StorageInfo {
@@ -37,7 +63,94 @@ interface StorageInfo {
   percentUsed: number;
 }
 
+function UpdatePaymentForm({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const { toast } = useToast();
+  const [isProcessing, setIsProcessing] = useState(false);
+
+  const updatePaymentMutation = useMutation({
+    mutationFn: async (paymentMethodId: string) => {
+      const res = await apiRequest("POST", "/api/subscriptions/update-payment", { paymentMethodId });
+      return await res.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Payment Method Updated",
+        description: "Your payment method has been updated successfully.",
+      });
+      onSuccess();
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Update Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+      setIsProcessing(false);
+    },
+  });
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!stripe || !elements) return;
+
+    setIsProcessing(true);
+
+    const { error, setupIntent } = await stripe.confirmSetup({
+      elements,
+      redirect: "if_required",
+      confirmParams: {
+        return_url: window.location.origin,
+      },
+    });
+
+    if (error) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+      setIsProcessing(false);
+      return;
+    }
+
+    if (setupIntent?.payment_method) {
+      const paymentMethodId = typeof setupIntent.payment_method === "string"
+        ? setupIntent.payment_method
+        : setupIntent.payment_method.id;
+      updatePaymentMutation.mutate(paymentMethodId);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      <div className="flex gap-2 justify-end">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={isProcessing}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!stripe || isProcessing} data-testid="button-confirm-payment-update">
+          {isProcessing ? (
+            <>
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              Updating...
+            </>
+          ) : (
+            "Update Payment Method"
+          )}
+        </Button>
+      </div>
+    </form>
+  );
+}
+
 export default function Billing() {
+  const { toast } = useToast();
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
+
   const { data: subscriptionData, isLoading: subscriptionLoading } = useQuery<{
     subscription: SubscriptionDetails | null;
   }>({
@@ -47,6 +160,60 @@ export default function Billing() {
   const { data: storageData, isLoading: storageLoading } = useQuery<StorageInfo>({
     queryKey: ["/api/storage/usage"],
   });
+
+  const { data: plansData, isLoading: plansLoading } = useQuery<SubscriptionPlan[]>({
+    queryKey: ["/api/subscription-plans"],
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/subscriptions/cancel", {});
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
+      setShowCancelDialog(false);
+      toast({
+        title: "Subscription Canceled",
+        description: `Your subscription will end on ${format(new Date(data.canceledAt), "MMM d, yyyy")}.`,
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Cancellation Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const setupPaymentMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/subscriptions/update-payment-setup", {});
+      return await res.json();
+    },
+    onSuccess: (data) => {
+      setPaymentClientSecret(data.clientSecret);
+      setShowPaymentDialog(true);
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleOpenPaymentDialog = () => {
+    setupPaymentMutation.mutate();
+  };
+
+  const handlePaymentSuccess = () => {
+    setShowPaymentDialog(false);
+    setPaymentClientSecret(null);
+    queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
+  };
 
   if (subscriptionLoading || storageLoading) {
     return (
@@ -80,6 +247,7 @@ export default function Billing() {
 
   const statusColors: Record<string, string> = {
     active: "bg-green-500/10 text-green-600 border-green-500/20",
+    canceling: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
     canceled: "bg-red-500/10 text-red-600 border-red-500/20",
     past_due: "bg-yellow-500/10 text-yellow-600 border-yellow-500/20",
     trialing: "bg-blue-500/10 text-blue-600 border-blue-500/20",
@@ -88,6 +256,11 @@ export default function Billing() {
   const storagePercentUsed = storageData?.percentUsed || 0;
   const storageUsedGb = storageData?.usedGb || 0;
   const storageTotalGb = storageData?.allocatedGb || subscription.plan?.storageBaseGb || 0;
+
+  const stripePublishableKey = import.meta.env.VITE_STRIPE_PUBLIC_KEY;
+  if (stripePublishableKey && !stripePromise) {
+    stripePromise = loadStripe(stripePublishableKey);
+  }
 
   return (
     <div className="space-y-6">
@@ -106,6 +279,7 @@ export default function Billing() {
               </CardTitle>
               <Badge className={statusColors[subscription.status] || ""} data-testid="badge-subscription-status">
                 {subscription.status === "active" && <Check className="w-3 h-3 mr-1" />}
+                {subscription.status === "canceling" && <AlertTriangle className="w-3 h-3 mr-1" />}
                 {subscription.status.charAt(0).toUpperCase() + subscription.status.slice(1)}
               </Badge>
             </div>
@@ -141,7 +315,7 @@ export default function Billing() {
               </div>
             </div>
 
-            {subscription.cancelAtPeriodEnd && (
+            {(subscription.cancelAtPeriodEnd || subscription.status === "canceling") && (
               <div className="bg-yellow-500/10 border border-yellow-500/20 rounded-md p-3">
                 <p className="text-sm text-yellow-600">
                   Your subscription will be canceled at the end of the current billing period.
@@ -149,6 +323,34 @@ export default function Billing() {
               </div>
             )}
           </CardContent>
+          <CardFooter className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleOpenPaymentDialog}
+              disabled={setupPaymentMutation.isPending}
+              data-testid="button-update-payment"
+            >
+              {setupPaymentMutation.isPending ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <CreditCard className="w-4 h-4 mr-2" />
+              )}
+              Update Payment
+            </Button>
+            {subscription.status === "active" && !subscription.cancelAtPeriodEnd && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCancelDialog(true)}
+                className="text-destructive hover:text-destructive"
+                data-testid="button-cancel-subscription"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancel Subscription
+              </Button>
+            )}
+          </CardFooter>
         </Card>
 
         <Card data-testid="card-billing-period">
@@ -176,7 +378,7 @@ export default function Billing() {
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Next Invoice</span>
                 <span data-testid="text-next-invoice">
-                  {subscription.cancelAtPeriodEnd 
+                  {subscription.cancelAtPeriodEnd || subscription.status === "canceling"
                     ? "N/A (Canceled)" 
                     : format(new Date(subscription.currentPeriodEnd), "MMM d, yyyy")}
                 </span>
@@ -220,6 +422,59 @@ export default function Billing() {
         </CardContent>
       </Card>
 
+      {!plansLoading && plansData && plansData.length > 0 && (
+        <Card data-testid="card-available-plans">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <ArrowUpRight className="w-5 h-5" />
+              Available Plans
+            </CardTitle>
+            <CardDescription>Compare and upgrade your subscription</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-3">
+              {plansData.map((plan) => {
+                const isCurrentPlan = subscription.plan?.id === plan.id;
+                return (
+                  <div
+                    key={plan.id}
+                    className={`p-4 rounded-lg border ${isCurrentPlan ? "border-primary bg-primary/5" : "border-border"}`}
+                    data-testid={`plan-card-${plan.planType}`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <h4 className="font-semibold">{plan.name}</h4>
+                      {isCurrentPlan && (
+                        <Badge variant="default" className="text-xs">Current</Badge>
+                      )}
+                    </div>
+                    <p className="text-2xl font-bold mb-2">
+                      ${parseFloat(plan.monthlyPrice).toFixed(2)}
+                      <span className="text-sm font-normal text-muted-foreground">/mo</span>
+                    </p>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      {plan.storageBaseGb} GB storage
+                    </p>
+                    <ul className="space-y-1">
+                      {plan.features.slice(0, 3).map((feature, idx) => (
+                        <li key={idx} className="flex items-center gap-2 text-sm">
+                          <Check className="w-3 h-3 text-green-500 flex-shrink-0" />
+                          <span className="text-muted-foreground">{feature}</span>
+                        </li>
+                      ))}
+                      {plan.features.length > 3 && (
+                        <li className="text-sm text-muted-foreground">
+                          +{plan.features.length - 3} more features
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {subscription.plan?.features && subscription.plan.features.length > 0 && (
         <Card data-testid="card-plan-features">
           <CardHeader>
@@ -239,20 +494,61 @@ export default function Billing() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Need Help?</CardTitle>
-          <CardDescription>Contact support for billing questions</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            For billing inquiries, plan changes, or cancellation requests, please contact our support team.
-          </p>
-          <Button variant="outline" data-testid="button-contact-support">
-            Contact Support
-          </Button>
-        </CardContent>
-      </Card>
+      <Dialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel Subscription</DialogTitle>
+            <DialogDescription>
+              Are you sure you want to cancel your subscription? You'll continue to have access until the end of your current billing period.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowCancelDialog(false)}>
+              Keep Subscription
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => cancelMutation.mutate()}
+              disabled={cancelMutation.isPending}
+              data-testid="button-confirm-cancel"
+            >
+              {cancelMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Canceling...
+                </>
+              ) : (
+                "Cancel Subscription"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle>Update Payment Method</DialogTitle>
+            <DialogDescription>
+              Enter your new payment details below.
+            </DialogDescription>
+          </DialogHeader>
+          {paymentClientSecret && stripePromise && (
+            <Elements
+              stripe={stripePromise}
+              options={{
+                clientSecret: paymentClientSecret,
+                appearance: { theme: "stripe" },
+              }}
+            >
+              <UpdatePaymentForm
+                onSuccess={handlePaymentSuccess}
+                onCancel={() => setShowPaymentDialog(false)}
+              />
+            </Elements>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

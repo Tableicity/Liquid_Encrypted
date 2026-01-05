@@ -409,6 +409,77 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Get all subscription plans (public endpoint for comparison)
+  app.get("/api/subscription-plans", async (req, res) => {
+    try {
+      const plans = await storage.getAllSubscriptionPlans();
+      res.json(plans);
+    } catch (error) {
+      console.error("Error fetching subscription plans:", error);
+      res.status(500).json({ error: "Failed to fetch subscription plans" });
+    }
+  });
+
+  // Get user profile
+  app.get("/api/profile", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      // Return safe user data (exclude password hash)
+      res.json({
+        id: user.id,
+        email: user.email,
+        fullName: user.fullName,
+        companyName: user.companyName,
+        role: user.role,
+        status: user.status,
+        createdAt: user.createdAt,
+        lastLogin: user.lastLogin,
+      });
+    } catch (error) {
+      console.error("Error fetching profile:", error);
+      res.status(500).json({ error: "Failed to fetch profile" });
+    }
+  });
+
+  // Update user profile
+  app.patch("/api/profile", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      const { fullName, companyName } = req.body;
+      
+      const updatedUser = await storage.updateUser(userId, {
+        fullName: fullName || null,
+        companyName: companyName || null,
+      });
+
+      if (!updatedUser) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      res.json({
+        id: updatedUser.id,
+        email: updatedUser.email,
+        fullName: updatedUser.fullName,
+        companyName: updatedUser.companyName,
+        role: updatedUser.role,
+        status: updatedUser.status,
+        createdAt: updatedUser.createdAt,
+        lastLogin: updatedUser.lastLogin,
+      });
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      res.status(500).json({ error: "Failed to update profile" });
+    }
+  });
+
   // Get current user's subscription
   app.get("/api/subscriptions/current", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
     try {
@@ -432,6 +503,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching subscription:", error);
       res.status(500).json({ error: "Failed to fetch subscription" });
+    }
+  });
+
+  // Cancel subscription
+  app.post("/api/subscriptions/cancel", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      
+      const result = await stripeService.cancelSubscription(userId);
+      res.json({
+        message: "Subscription will be canceled at the end of the billing period",
+        canceledAt: result.canceledAt,
+      });
+    } catch (error: any) {
+      console.error("Error canceling subscription:", error);
+      res.status(400).json({ error: error.message || "Failed to cancel subscription" });
+    }
+  });
+
+  // Create setup intent for updating payment method
+  app.post("/api/subscriptions/update-payment-setup", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      
+      const result = await stripeService.createSetupIntentForPaymentUpdate(userId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Error creating setup intent:", error);
+      res.status(400).json({ error: error.message || "Failed to create setup intent" });
+    }
+  });
+
+  // Update payment method
+  app.post("/api/subscriptions/update-payment", requireAuth, requireRole(["customer", "support", "billing_admin", "super_admin", "owner"], storage), async (req, res) => {
+    try {
+      // @ts-ignore - userId guaranteed by requireAuth middleware
+      const userId: string = req.userId;
+      const { paymentMethodId } = req.body;
+
+      if (!paymentMethodId) {
+        return res.status(400).json({ error: "Payment method ID is required" });
+      }
+
+      await stripeService.updatePaymentMethod(userId, paymentMethodId);
+      res.json({ message: "Payment method updated successfully" });
+    } catch (error: any) {
+      console.error("Error updating payment method:", error);
+      res.status(400).json({ error: error.message || "Failed to update payment method" });
     }
   });
 

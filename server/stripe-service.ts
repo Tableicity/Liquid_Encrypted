@@ -419,4 +419,126 @@ export class StripeService {
       }
     });
   }
+
+  /**
+   * Cancel a subscription at the end of the billing period
+   */
+  async cancelSubscription(userId: string): Promise<{ canceledAt: Date }> {
+    const user = await this.storage.getUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const subscription = await this.storage.getSubscriptionByUserId(userId);
+    if (!subscription) {
+      throw new Error("No active subscription found");
+    }
+
+    if (!subscription.stripeSubscriptionId) {
+      throw new Error("No Stripe subscription ID found");
+    }
+
+    // Cancel at period end (not immediately)
+    const stripeSubscription = await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+      cancel_at_period_end: true,
+    });
+
+    // Update local subscription status
+    await this.storage.updateSubscription(subscription.id, {
+      status: "canceling",
+    });
+
+    // Create audit log
+    await createAuditLog(this.storage, {
+      actorId: userId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: "SUBSCRIPTION_CANCELED",
+      resourceType: "subscription",
+      resourceId: subscription.id,
+      result: "success",
+      metadata: {
+        cancelAt: subscription.currentPeriodEnd,
+        reason: "user_requested",
+      }
+    });
+
+    return {
+      canceledAt: subscription.currentPeriodEnd || new Date(),
+    };
+  }
+
+  /**
+   * Create a setup intent for updating payment method
+   */
+  async createSetupIntentForPaymentUpdate(userId: string): Promise<{ clientSecret: string }> {
+    const user = await this.storage.getUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (!user.stripeCustomerId) {
+      throw new Error("No Stripe customer found");
+    }
+
+    const setupIntent = await stripe.setupIntents.create({
+      customer: user.stripeCustomerId,
+      payment_method_types: ["card"],
+      usage: "off_session",
+    });
+
+    return {
+      clientSecret: setupIntent.client_secret!,
+    };
+  }
+
+  /**
+   * Update the default payment method for a customer's subscription
+   */
+  async updatePaymentMethod(userId: string, paymentMethodId: string): Promise<void> {
+    const user = await this.storage.getUser(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    if (!user.stripeCustomerId) {
+      throw new Error("No Stripe customer found");
+    }
+
+    const subscription = await this.storage.getSubscriptionByUserId(userId);
+    if (!subscription || !subscription.stripeSubscriptionId) {
+      throw new Error("No active subscription found");
+    }
+
+    // Attach payment method to customer
+    await stripe.paymentMethods.attach(paymentMethodId, {
+      customer: user.stripeCustomerId,
+    });
+
+    // Set as default payment method for the customer
+    await stripe.customers.update(user.stripeCustomerId, {
+      invoice_settings: {
+        default_payment_method: paymentMethodId,
+      },
+    });
+
+    // Update subscription to use new payment method
+    await stripe.subscriptions.update(subscription.stripeSubscriptionId, {
+      default_payment_method: paymentMethodId,
+    });
+
+    // Create audit log
+    await createAuditLog(this.storage, {
+      actorId: userId,
+      actorEmail: user.email,
+      actorRole: user.role,
+      action: "PAYMENT_METHOD_UPDATED",
+      resourceType: "payment_method",
+      resourceId: paymentMethodId,
+      result: "success",
+      metadata: {
+        subscriptionId: subscription.id,
+      }
+    });
+  }
 }
