@@ -50,6 +50,30 @@ The Liquid Encrypted Data System is a security platform that utilizes quantum-re
 - **Security-first**: Emphasizing quantum-resistant encryption, secure authentication, and robust access control.
 - **Scalability**: Designed with a layered architecture to facilitate future enhancements.
 
+## AWS Migration
+
+### Containerization
+- **Dockerfile**: Multi-stage Node.js 20 Alpine build, exposes port 8000
+- **Health Check**: `/healthz` endpoint returns database connection status for ALB health checks
+- **Port Configuration**: Uses `PORT` environment variable (default 5000 for Replit, set to 8000 for AWS)
+
+### CI/CD Pipelines
+- **Production** (`.github/workflows/prod.yml`): Deploys `main` branch to `prod-liquid` ECS cluster
+- **Staging** (`.github/workflows/staging.yml`): Deploys `staging` branch to `stg-liquid` ECS cluster with type checks
+
+### Branch Strategy
+- `main` - Production releases (immutable history of live deployments)
+- `staging` - Staging environment for testing before production
+- Feature branches merge to `staging` first, then `staging` merges to `main`
+
+### AWS Resources (to be provisioned)
+- ECS Fargate clusters: `prod-liquid`, `stg-liquid`
+- ECR repository: `liquid-app`
+- Application Load Balancer with HTTPS (ACM cert)
+- S3 buckets for Shredder shards (SSE-KMS enabled)
+- RDS PostgreSQL database
+- Secrets Manager for API keys (Stripe, OpenAI, etc.)
+
 ## External Dependencies
 - **OpenAI API**: Used for the gpt-4o-mini model for story-based authentication.
 - **Stripe API**: Integrated for secure subscription payment processing and webhooks.
