@@ -1,6 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
+import bcrypt from "bcryptjs";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { storage } from "./storage";
@@ -126,9 +127,75 @@ async function bootstrapOwnerAccount() {
   }
 }
 
+async function bootstrapSuperAdminAccount() {
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
+
+  if (!superAdminEmail || !superAdminPassword) {
+    console.log("[RBAC Bootstrap] No SUPER_ADMIN_EMAIL/SUPER_ADMIN_PASSWORD set. Skipping super admin setup.");
+    return;
+  }
+
+  console.log(`[RBAC Bootstrap] Checking for super admin account: ${superAdminEmail}`);
+
+  try {
+    let user = await storage.getUserByEmail(superAdminEmail);
+
+    if (!user) {
+      console.log(`[RBAC Bootstrap] Creating super admin account for ${superAdminEmail}...`);
+      const passwordHash = await bcrypt.hash(superAdminPassword, 10);
+      user = await storage.createUser({
+        email: superAdminEmail,
+        passwordHash,
+        role: "super_admin",
+      });
+      console.log(`[RBAC Bootstrap] Super admin account created for ${superAdminEmail}`);
+
+      await storage.createAuditLog({
+        userId: user.id,
+        action: "super_admin_bootstrap",
+        resourceType: "user",
+        resourceId: user.id,
+        status: "success",
+        details: {
+          email: superAdminEmail,
+          role: "super_admin",
+          message: "Super admin account auto-created from environment variables"
+        }
+      });
+      return;
+    }
+
+    if (user.role === "super_admin" || user.role === "owner") {
+      console.log(`✅ [RBAC Bootstrap] User ${superAdminEmail} already has '${user.role}' role.`);
+      return;
+    }
+
+    await storage.updateUser(user.id, { role: "super_admin" });
+    console.log(`[RBAC Bootstrap] User ${superAdminEmail} promoted to 'super_admin' role.`);
+
+    await storage.createAuditLog({
+      userId: user.id,
+      action: "super_admin_bootstrap",
+      resourceType: "user",
+      resourceId: user.id,
+      status: "success",
+      details: {
+        email: superAdminEmail,
+        previousRole: user.role,
+        newRole: "super_admin",
+        message: "Super admin account bootstrapped from environment variables"
+      }
+    });
+  } catch (error) {
+    console.error(`❌ [RBAC Bootstrap] Error during super admin bootstrap:`, error);
+  }
+}
+
 (async () => {
-  // Bootstrap owner account before registering routes
+  // Bootstrap privileged accounts before registering routes
   await bootstrapOwnerAccount();
+  await bootstrapSuperAdminAccount();
   
   const server = await registerRoutes(app);
 
