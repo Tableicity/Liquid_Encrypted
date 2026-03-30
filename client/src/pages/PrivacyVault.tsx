@@ -21,6 +21,7 @@ import type { Document } from "@shared/schema";
 
 interface PrivacyVaultProps {
   onNavigate: (page: string) => void;
+  isSandbox?: boolean;
 }
 
 interface Commitment {
@@ -59,7 +60,7 @@ function formatDate(iso: string): string {
   });
 }
 
-export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
+export default function PrivacyVault({ onNavigate, isSandbox }: PrivacyVaultProps) {
   const [selectedDocId, setSelectedDocId] = useState<string>("");
   const [authenticityScore, setAuthenticityScore] = useState<number>(85);
   const [threshold, setThreshold] = useState<number[]>([70]);
@@ -75,7 +76,12 @@ export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
     queryKey: ["/api/proofs/commitments"],
   });
 
+  const { data: usageData } = useQuery<{ usage: { proofsGenerated: number; proofsVerified: number } }>({
+    queryKey: ["/api/proofs/usage/current"],
+  });
+
   const commitments = commitmentsData?.commitments || [];
+  const sandboxProofLimitReached = isSandbox && (usageData?.usage?.proofsGenerated ?? 0) >= 1;
 
   const createCommitmentMutation = useMutation({
     mutationFn: async () => {
@@ -280,7 +286,21 @@ export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
               </p>
             </div>
 
-            {ritualActive || generateProofMutation.isPending ? (
+            {sandboxProofLimitReached ? (
+              <div className="space-y-3 text-center" data-testid="sandbox-proof-limit">
+                <p className="text-sm text-muted-foreground">
+                  You've used your sandbox proof. Create a live organization to generate more proofs.
+                </p>
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => onNavigate("create-org")}
+                  data-testid="button-upgrade-org"
+                >
+                  Create Organization
+                </Button>
+              </div>
+            ) : ritualActive || generateProofMutation.isPending ? (
               <SecurityRitualProgress
                 isActive={ritualActive || generateProofMutation.isPending}
                 onComplete={handleRitualComplete}

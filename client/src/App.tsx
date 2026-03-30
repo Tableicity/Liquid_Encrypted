@@ -393,9 +393,9 @@ function AppContent() {
                 {currentPage === "dashboard" && (
                   <Dashboard onNavigate={setCurrentPage} />
                 )}
-                {currentPage === "upload" && <UploadPage onNavigate={setCurrentPage} />}
+                {currentPage === "upload" && <UploadPage onNavigate={setCurrentPage} isSandbox={activeOrg?.type === "sandbox"} />}
                 {currentPage === "documents" && (
-                  <Documents onNavigate={setCurrentPage} />
+                  <Documents onNavigate={setCurrentPage} isSandbox={activeOrg?.type === "sandbox"} />
                 )}
                 {currentPage === "architecture" && (
                   <Architecture onNavigate={setCurrentPage} />
@@ -409,7 +409,7 @@ function AppContent() {
                   />
                 )}
                 {currentPage === "privacy-vault" && (
-                  <PrivacyVault onNavigate={(page) => setCurrentPage(page as Page)} />
+                  <PrivacyVault onNavigate={(page) => setCurrentPage(page as Page)} isSandbox={activeOrg?.type === "sandbox"} />
                 )}
                 {currentPage === "verify-proof" && (
                   <VerifyProof onNavigate={(page) => setCurrentPage(page as Page)} />

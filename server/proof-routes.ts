@@ -104,6 +104,15 @@ async function generateProofHandler(req: AuthRequest, res: any) {
     if (!commitmentId || typeof commitmentId !== "string") {
       return res.status(400).json({ error: "commitmentId is required and must be a string" });
     }
+
+    const org = await storage.getOrganization(req.organizationId!);
+    if (org?.type === "sandbox") {
+      const usage = await storage.getOrCreateProofUsage(req.organizationId!);
+      if (usage.proofsGenerated >= 1) {
+        return res.status(403).json({ error: "Sandbox organizations are limited to 1 proof. Create a live organization to generate more." });
+      }
+    }
+
     const effectiveThreshold = typeof threshold === "number" ? threshold : PROOF_CONFIG.defaultThreshold;
     if (effectiveThreshold < PROOF_CONFIG.minThreshold || effectiveThreshold > PROOF_CONFIG.maxThreshold) {
       return res.status(400).json({ error: `Threshold must be between ${PROOF_CONFIG.minThreshold} and ${PROOF_CONFIG.maxThreshold}` });

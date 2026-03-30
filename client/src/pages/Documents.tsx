@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Search, Filter, ArrowLeft, Download, X } from "lucide-react";
+import { Search, Filter, ArrowLeft, Download, X, Lock } from "lucide-react";
 import { DocumentCard } from "@/components/DocumentCard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import type { Document } from "@shared/schema";
 
 interface DocumentsProps {
   onNavigate: (page: "dashboard") => void;
+  isSandbox?: boolean;
 }
 
 function formatFileSize(bytes: number): string {
@@ -46,7 +47,7 @@ function formatTimestamp(iso: string): string {
   return `${diffDays} day${diffDays > 1 ? "s" : ""} ago`;
 }
 
-export default function Documents({ onNavigate }: DocumentsProps) {
+export default function Documents({ onNavigate, isSandbox }: DocumentsProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [showAuthDialog, setShowAuthDialog] = useState(false);
@@ -182,12 +183,12 @@ export default function Documents({ onNavigate }: DocumentsProps) {
     return matchesSearch && matchesStatus;
   });
 
+  const effectiveSessionId = isSandbox ? null : authenticatedSessionId;
+
   const handleView = (id: string) => {
-    // If we have an authenticated session, view directly
-    if (authenticatedSessionId) {
-      viewMutation.mutate({ id, sessionId: authenticatedSessionId });
+    if (effectiveSessionId) {
+      viewMutation.mutate({ id, sessionId: effectiveSessionId });
     } else {
-      // Otherwise, open auth dialog first
       setSelectedDoc(id);
       setPendingAction("view");
       setShowAuthDialog(true);
@@ -195,11 +196,9 @@ export default function Documents({ onNavigate }: DocumentsProps) {
   };
 
   const handleDownload = (id: string) => {
-    // If we have an authenticated session, use it directly
-    if (authenticatedSessionId) {
-      downloadMutation.mutate({ id, sessionId: authenticatedSessionId });
+    if (effectiveSessionId) {
+      downloadMutation.mutate({ id, sessionId: effectiveSessionId });
     } else {
-      // Otherwise, open auth dialog first
       setSelectedDoc(id);
       setPendingAction("download");
       setShowAuthDialog(true);
@@ -207,11 +206,9 @@ export default function Documents({ onNavigate }: DocumentsProps) {
   };
 
   const handleLock = (id: string) => {
-    // Lock requires authentication - prompt if no session
-    if (authenticatedSessionId) {
-      lockMutation.mutate({ id, sessionId: authenticatedSessionId });
+    if (effectiveSessionId) {
+      lockMutation.mutate({ id, sessionId: effectiveSessionId });
     } else {
-      // Open auth dialog first
       setSelectedDoc(id);
       setPendingAction("lock");
       setShowAuthDialog(true);
@@ -332,10 +329,24 @@ export default function Documents({ onNavigate }: DocumentsProps) {
           <DialogHeader>
             <DialogTitle>Authenticate to Access Document</DialogTitle>
           </DialogHeader>
-          <ChatInterface 
-            onAuthSuccess={handleAuthSuccess} 
-            existingSessionId={authenticatedSessionId || undefined}
-          />
+          {isSandbox ? (
+            <div className="flex flex-col items-center justify-center py-12 space-y-4 text-center" data-testid="sandbox-ai-locked">
+              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                <Lock className="w-8 h-8 text-muted-foreground" />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-semibold">AI Story Authentication</h3>
+                <p className="text-sm text-muted-foreground max-w-md">
+                  Create a live organization to unlock AI-powered story-based authentication for your documents.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <ChatInterface 
+              onAuthSuccess={handleAuthSuccess} 
+              existingSessionId={authenticatedSessionId || undefined}
+            />
+          )}
         </DialogContent>
       </Dialog>
 

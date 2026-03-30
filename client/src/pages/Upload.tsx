@@ -4,7 +4,7 @@ import { FileUploadZone } from "@/components/FileUploadZone";
 import { FragmentVisualization } from "@/components/FragmentVisualization";
 import { ChatInterface } from "@/components/ChatInterface";
 import { Card, CardHeader, CardContent } from "@/components/ui/card";
-import { CheckCircle2, ArrowLeft } from "lucide-react";
+import { CheckCircle2, ArrowLeft, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
@@ -12,9 +12,10 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface UploadProps {
   onNavigate: (page: "dashboard" | "documents") => void;
+  isSandbox?: boolean;
 }
 
-export default function Upload({ onNavigate }: UploadProps) {
+export default function Upload({ onNavigate, isSandbox }: UploadProps) {
   const [uploadState, setUploadState] = useState<
     "idle" | "uploading" | "liquifying" | "authenticating" | "complete"
   >("idle");
@@ -169,7 +170,23 @@ export default function Upload({ onNavigate }: UploadProps) {
             </CardContent>
           </Card>
 
-          <ChatInterface onAuthSuccess={handleAuthSuccess} />
+          {isSandbox ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 space-y-4 text-center">
+                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                  <Lock className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-lg font-semibold">AI Story Authentication</h3>
+                  <p className="text-sm text-muted-foreground max-w-md">
+                    Create a live organization to unlock AI-powered story-based authentication for your documents.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <ChatInterface onAuthSuccess={handleAuthSuccess} />
+          )}
         </div>
       )}
 

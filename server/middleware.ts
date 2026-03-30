@@ -261,3 +261,21 @@ export function requireOrgContext(req: AuthRequest, res: Response, next: NextFun
     res.status(500).json({ error: "Failed to verify organization membership" });
   });
 }
+
+export function requireNonSandbox(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.organizationId) {
+    return res.status(400).json({ error: "Organization context required." });
+  }
+  storage.getOrganization(req.organizationId).then(org => {
+    if (!org) {
+      return res.status(404).json({ error: "Organization not found" });
+    }
+    if (org.type === "sandbox") {
+      return res.status(403).json({ error: "This feature is not available in sandbox organizations. Create a live organization to access it." });
+    }
+    next();
+  }).catch(error => {
+    console.error("Error checking org type:", error);
+    res.status(500).json({ error: "Failed to verify organization type" });
+  });
+}

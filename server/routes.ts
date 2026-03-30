@@ -7,7 +7,7 @@ import OpenAI from "openai";
 import { storage } from "./storage";
 import { liquifyDocument, reconstituteDocument } from "./liquification";
 import { StripeService, stripe } from "./stripe-service";
-import { requireAuth, requireRole, hasPermission, assertDocumentAccess, type AuthRequest } from "./middleware";
+import { requireAuth, requireRole, hasPermission, assertDocumentAccess, requireNonSandbox, type AuthRequest } from "./middleware";
 import { checkStorageQuota, checkGracePeriodResolution } from "./middleware/quotaCheck";
 import { registerAdminRoutes } from "./admin-routes";
 import { registerOrgRoutes } from "./org-routes";
@@ -1064,7 +1064,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Create chat session (protected by customer role)
   // TODO: Integrate story-based authentication tokens for enhanced narrative verification
-  app.post("/api/chat/session", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req: AuthRequest, res) => {
+  app.post("/api/chat/session", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), requireNonSandbox, async (req: AuthRequest, res) => {
     try {
       const { documentId } = req.body;
       
@@ -1092,7 +1092,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Send chat message and get AI response (protected by customer role)
   // TODO: Integrate story-based authentication tokens for enhanced narrative verification
-  app.post("/api/chat/message", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), async (req, res) => {
+  app.post("/api/chat/message", requireAuth, requireRole(["customer", "support", "owner", "super_admin"], storage), requireNonSandbox, async (req, res) => {
     try {
       if (!process.env.OPENAI_API_KEY) {
         return res.status(500).json({ 
