@@ -46,6 +46,7 @@ import {
   Lock,
   Fingerprint,
   KeyRound,
+  Sparkles,
 } from "lucide-react";
 import { isAuthenticated, removeToken, getActiveOrgId, setActiveOrgId as persistActiveOrgId } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
@@ -53,8 +54,7 @@ import Dashboard from "@/pages/Dashboard";
 import UploadPage from "@/pages/Upload";
 import Documents from "@/pages/Documents";
 import Architecture from "@/pages/Architecture";
-import Login from "@/pages/Login";
-import Signup from "@/pages/Signup";
+import LandingPage from "@/pages/LandingPage";
 import Subscribe from "@/pages/Subscribe";
 import Billing from "@/pages/Billing";
 import Profile from "@/pages/Profile";
@@ -63,8 +63,7 @@ import PrivacyVault from "@/pages/PrivacyVault";
 import VerifyProof from "@/pages/VerifyProof";
 import AuditProofs from "@/pages/AuditProofs";
 
-type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing" | "profile" | "create-org" | "privacy-vault" | "verify-proof" | "audit-proofs";
-type AuthView = "login" | "signup";
+type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing" | "profile" | "create-org" | "privacy-vault" | "verify-proof" | "audit-proofs" | "subscribe";
 
 interface OrgResponse {
   organizations: Array<{
@@ -77,20 +76,11 @@ interface OrgResponse {
   }>;
 }
 
-interface SubscriptionResponse {
-  subscription: {
-    id: string;
-    status: string;
-  } | null;
-}
-
 const NOIR_ENABLED = import.meta.env.VITE_NOIR_ENABLED === "true";
 
 function AppContent() {
   const [authenticated, setAuthenticated] = useState(false);
-  const [authView, setAuthView] = useState<AuthView>("login");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
-  const [needsSubscription, setNeedsSubscription] = useState(false);
   const [activeOrgId, setActiveOrgIdState] = useState<string>(getActiveOrgId() || "");
   const [zkpOpen, setZkpOpen] = useState(false);
   const { toast } = useToast();
@@ -111,16 +101,9 @@ function AppContent() {
         title: "Payment Successful",
         description: "Your subscription is now active!",
       });
-      setNeedsSubscription(false);
       queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
     }
   }, [toast]);
-
-  const { data: subscriptionData, isLoading: subscriptionLoading, error: subscriptionError } = useQuery<SubscriptionResponse>({
-    queryKey: ["/api/subscriptions/current"],
-    enabled: authenticated,
-    retry: false,
-  });
 
   const { data: orgsData } = useQuery<OrgResponse>({
     queryKey: ["/api/organizations"],
@@ -139,15 +122,18 @@ function AppContent() {
     }
   }, [organizations, activeOrgId]);
 
-  const subscription = subscriptionData?.subscription;
+  const { error: sessionCheckError } = useQuery({
+    queryKey: ["/api/subscriptions/current"],
+    enabled: authenticated,
+    retry: false,
+  });
 
   useEffect(() => {
-    if (subscriptionError && authenticated) {
-      const errorMessage = (subscriptionError as any)?.message || '';
+    if (sessionCheckError && authenticated) {
+      const errorMessage = (sessionCheckError as any)?.message || '';
       if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('Invalid or expired token')) {
         removeToken();
         setAuthenticated(false);
-        setNeedsSubscription(false);
         queryClient.clear();
         toast({
           title: "Session Expired",
@@ -156,7 +142,7 @@ function AppContent() {
         });
       }
     }
-  }, [subscriptionError, authenticated, toast]);
+  }, [sessionCheckError, authenticated, toast]);
 
   const handleLogin = () => {
     setAuthenticated(true);
@@ -164,15 +150,9 @@ function AppContent() {
     queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
   };
 
-  const handleSubscriptionComplete = () => {
-    setNeedsSubscription(false);
-    queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
-  };
-
   const handleLogout = () => {
     removeToken();
     setAuthenticated(false);
-    setNeedsSubscription(false);
     setActiveOrgIdState("");
     queryClient.clear();
   };
@@ -189,6 +169,7 @@ function AppContent() {
     { title: "Documents", page: "documents" as const, icon: FileText },
     { title: "Profile", page: "profile" as const, icon: User },
     { title: "Billing", page: "billing" as const, icon: CreditCard },
+    { title: "Subscription", page: "subscribe" as const, icon: Sparkles },
     { title: "Architecture", page: "architecture" as const, icon: BookOpen },
   ];
 
@@ -197,231 +178,214 @@ function AppContent() {
     "--sidebar-width-icon": "3rem",
   };
 
-  if (authenticated && subscriptionLoading) {
+  if (!authenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-primary" />
-      </div>
+      <>
+        <LandingPage onSuccess={handleLogin} />
+        <Toaster />
+      </>
     );
   }
 
-  const hasActiveSubscription = subscription && subscription.status === "active";
-  const showSubscriptionPage = authenticated && !subscriptionLoading && !hasActiveSubscription;
-
   return (
     <>
-      {!authenticated ? (
-        authView === "login" ? (
-          <Login
-            onSuccess={handleLogin}
-            onSwitchToSignup={() => setAuthView("signup")}
-          />
-        ) : (
-          <Signup
-            onSuccess={handleLogin}
-            onSwitchToLogin={() => setAuthView("login")}
-          />
-        )
-      ) : showSubscriptionPage ? (
-        <Subscribe onSuccess={handleSubscriptionComplete} />
-      ) : (
-        <SidebarProvider style={style as React.CSSProperties}>
-          <div className="flex h-screen w-full">
-            <Sidebar>
-              <SidebarContent>
-                <SidebarGroup>
-                  <div className="px-4 py-6">
-                    <h2 className="text-lg font-bold">Liquid Encrypt</h2>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Quantum-Resistant Security
-                    </p>
-                  </div>
+      <SidebarProvider style={style as React.CSSProperties}>
+        <div className="flex h-screen w-full">
+          <Sidebar>
+            <SidebarContent>
+              <SidebarGroup>
+                <div className="px-4 py-6">
+                  <h2 className="text-lg font-bold">Liquid Encrypt</h2>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Quantum-Resistant Security
+                  </p>
+                </div>
 
-                  {organizations.length > 0 && (
-                    <div className="px-3 pb-3">
-                      <Select value={activeOrgId} onValueChange={setActiveOrgId}>
-                        <SelectTrigger
-                          className="w-full"
-                          data-testid="select-org-switcher"
-                        >
-                          <div className="flex items-center gap-2 truncate">
-                            <Building2 className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-                            <SelectValue placeholder="Select organization" />
-                          </div>
-                        </SelectTrigger>
-                        <SelectContent>
-                          {organizations.map((org) => (
-                            <SelectItem
-                              key={org.id}
-                              value={org.id}
-                              data-testid={`select-org-${org.slug}`}
-                            >
-                              <span className="truncate">{org.name}</span>
-                              {org.type === "sandbox" && (
-                                <span className="ml-2 text-xs text-muted-foreground">(sandbox)</span>
-                              )}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full mt-1 justify-start text-muted-foreground"
-                        onClick={() => setCurrentPage("create-org")}
-                        data-testid="button-create-org-nav"
+                {organizations.length > 0 && (
+                  <div className="px-3 pb-3">
+                    <Select value={activeOrgId} onValueChange={setActiveOrgId}>
+                      <SelectTrigger
+                        className="w-full"
+                        data-testid="select-org-switcher"
                       >
-                        <Plus className="w-3.5 h-3.5 mr-2" />
-                        New Organization
-                      </Button>
-                    </div>
-                  )}
-
-                  <div className="mx-3 my-2 h-px bg-border" />
-
-                  <SidebarGroupContent>
-                    <SidebarMenu>
-                      {menuItems.map((item) => (
-                        <SidebarMenuItem key={item.title}>
-                          <SidebarMenuButton
-                            onClick={() => setCurrentPage(item.page)}
-                            isActive={currentPage === item.page}
-                            data-testid={`nav-${item.page}`}
+                        <div className="flex items-center gap-2 truncate">
+                          <Building2 className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                          <SelectValue placeholder="Select organization" />
+                        </div>
+                      </SelectTrigger>
+                      <SelectContent>
+                        {organizations.map((org) => (
+                          <SelectItem
+                            key={org.id}
+                            value={org.id}
+                            data-testid={`select-org-${org.slug}`}
                           >
-                            <item.icon className="w-4 h-4" />
-                            <span>{item.title}</span>
-                          </SidebarMenuButton>
-                        </SidebarMenuItem>
-                      ))}
-                    </SidebarMenu>
-                  </SidebarGroupContent>
-
-                  <div className="mx-3 my-2 h-px bg-border" />
-
-                  <SidebarGroupLabel className="px-4 text-xs text-muted-foreground uppercase tracking-wider">
-                    Advanced
-                  </SidebarGroupLabel>
-                  <SidebarGroupContent>
-                    <Collapsible open={zkpOpen} onOpenChange={setZkpOpen}>
-                      <CollapsibleTrigger asChild>
-                        <SidebarMenuButton
-                          className="w-full"
-                          data-testid="nav-zero-proofs"
-                        >
-                          <ShieldCheck className="w-4 h-4" />
-                          <span className="flex-1 text-left">Zero Proofs</span>
-                          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${zkpOpen ? "rotate-90" : ""}`} />
-                        </SidebarMenuButton>
-                      </CollapsibleTrigger>
-                      <CollapsibleContent>
-                        <SidebarMenu className="pl-4">
-                          <SidebarMenuItem>
-                            <SidebarMenuButton
-                              disabled={!NOIR_ENABLED}
-                              onClick={() => NOIR_ENABLED && setCurrentPage("privacy-vault")}
-                              isActive={currentPage === "privacy-vault"}
-                              data-testid="nav-zkp-commitments"
-                            >
-                              <Lock className="w-4 h-4" />
-                              <span>Commitments</span>
-                              {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton
-                              disabled={!NOIR_ENABLED}
-                              onClick={() => NOIR_ENABLED && setCurrentPage("verify-proof")}
-                              isActive={currentPage === "verify-proof"}
-                              data-testid="nav-zkp-verify"
-                            >
-                              <Fingerprint className="w-4 h-4" />
-                              <span>Verify</span>
-                              {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                          <SidebarMenuItem>
-                            <SidebarMenuButton
-                              disabled={!NOIR_ENABLED}
-                              onClick={() => NOIR_ENABLED && setCurrentPage("audit-proofs")}
-                              isActive={currentPage === "audit-proofs"}
-                              data-testid="nav-zkp-proofs"
-                            >
-                              <KeyRound className="w-4 h-4" />
-                              <span>Proof History</span>
-                              {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
-                            </SidebarMenuButton>
-                          </SidebarMenuItem>
-                        </SidebarMenu>
-                        {!NOIR_ENABLED && (
-                          <p className="px-4 py-2 text-xs text-muted-foreground">
-                            Zero Knowledge Proofs will be available when Noir integration is enabled.
-                          </p>
-                        )}
-                      </CollapsibleContent>
-                    </Collapsible>
-                  </SidebarGroupContent>
-
-                  <div className="mt-auto p-4">
+                            <span className="truncate">{org.name}</span>
+                            {org.type === "sandbox" && (
+                              <span className="ml-2 text-xs text-muted-foreground">(sandbox)</span>
+                            )}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <Button
                       variant="ghost"
-                      className="w-full justify-start"
-                      onClick={handleLogout}
-                      data-testid="button-logout"
+                      size="sm"
+                      className="w-full mt-1 justify-start text-muted-foreground"
+                      onClick={() => setCurrentPage("create-org")}
+                      data-testid="button-create-org-nav"
                     >
-                      <LogOut className="w-4 h-4 mr-2" />
-                      Logout
+                      <Plus className="w-3.5 h-3.5 mr-2" />
+                      New Organization
                     </Button>
                   </div>
-                </SidebarGroup>
-              </SidebarContent>
-            </Sidebar>
+                )}
 
-            <div className="flex flex-col flex-1 overflow-hidden">
-              <header className="flex items-center justify-between gap-2 p-4 border-b border-border">
-                <div className="flex items-center gap-2">
-                  <SidebarTrigger data-testid="button-sidebar-toggle" />
-                  {activeOrg && (
-                    <span className="text-sm text-muted-foreground hidden sm:inline" data-testid="text-active-org">
-                      {activeOrg.name}
-                    </span>
-                  )}
+                <div className="mx-3 my-2 h-px bg-border" />
+
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    {menuItems.map((item) => (
+                      <SidebarMenuItem key={item.title}>
+                        <SidebarMenuButton
+                          onClick={() => setCurrentPage(item.page)}
+                          isActive={currentPage === item.page}
+                          data-testid={`nav-${item.page}`}
+                        >
+                          <item.icon className="w-4 h-4" />
+                          <span>{item.title}</span>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    ))}
+                  </SidebarMenu>
+                </SidebarGroupContent>
+
+                <div className="mx-3 my-2 h-px bg-border" />
+
+                <SidebarGroupLabel className="px-4 text-xs text-muted-foreground uppercase tracking-wider">
+                  Advanced
+                </SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <Collapsible open={zkpOpen} onOpenChange={setZkpOpen}>
+                    <CollapsibleTrigger asChild>
+                      <SidebarMenuButton
+                        className="w-full"
+                        data-testid="nav-zero-proofs"
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span className="flex-1 text-left">Zero Proofs</span>
+                        <ChevronRight className={`w-3.5 h-3.5 transition-transform ${zkpOpen ? "rotate-90" : ""}`} />
+                      </SidebarMenuButton>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <SidebarMenu className="pl-4">
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            disabled={!NOIR_ENABLED}
+                            onClick={() => NOIR_ENABLED && setCurrentPage("privacy-vault")}
+                            isActive={currentPage === "privacy-vault"}
+                            data-testid="nav-zkp-commitments"
+                          >
+                            <Lock className="w-4 h-4" />
+                            <span>Commitments</span>
+                            {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            disabled={!NOIR_ENABLED}
+                            onClick={() => NOIR_ENABLED && setCurrentPage("verify-proof")}
+                            isActive={currentPage === "verify-proof"}
+                            data-testid="nav-zkp-verify"
+                          >
+                            <Fingerprint className="w-4 h-4" />
+                            <span>Verify</span>
+                            {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                        <SidebarMenuItem>
+                          <SidebarMenuButton
+                            disabled={!NOIR_ENABLED}
+                            onClick={() => NOIR_ENABLED && setCurrentPage("audit-proofs")}
+                            isActive={currentPage === "audit-proofs"}
+                            data-testid="nav-zkp-proofs"
+                          >
+                            <KeyRound className="w-4 h-4" />
+                            <span>Proof History</span>
+                            {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
+                          </SidebarMenuButton>
+                        </SidebarMenuItem>
+                      </SidebarMenu>
+                      {!NOIR_ENABLED && (
+                        <p className="px-4 py-2 text-xs text-muted-foreground">
+                          Zero Knowledge Proofs will be available when Noir integration is enabled.
+                        </p>
+                      )}
+                    </CollapsibleContent>
+                  </Collapsible>
+                </SidebarGroupContent>
+
+                <div className="mt-auto p-4">
+                  <Button
+                    variant="ghost"
+                    className="w-full justify-start"
+                    onClick={handleLogout}
+                    data-testid="button-logout"
+                  >
+                    <LogOut className="w-4 h-4 mr-2" />
+                    Logout
+                  </Button>
                 </div>
-                <ThemeToggle />
-              </header>
+              </SidebarGroup>
+            </SidebarContent>
+          </Sidebar>
 
-              <main className="flex-1 overflow-auto p-8">
-                {currentPage === "dashboard" && (
-                  <Dashboard onNavigate={setCurrentPage} />
+          <div className="flex flex-col flex-1 overflow-hidden">
+            <header className="flex items-center justify-between gap-2 p-4 border-b border-border">
+              <div className="flex items-center gap-2">
+                <SidebarTrigger data-testid="button-sidebar-toggle" />
+                {activeOrg && (
+                  <span className="text-sm text-muted-foreground hidden sm:inline" data-testid="text-active-org">
+                    {activeOrg.name}
+                  </span>
                 )}
-                {currentPage === "upload" && <UploadPage onNavigate={setCurrentPage} isSandbox={activeOrg?.type === "sandbox"} />}
-                {currentPage === "documents" && (
-                  <Documents onNavigate={setCurrentPage} isSandbox={activeOrg?.type === "sandbox"} />
-                )}
-                {currentPage === "architecture" && (
-                  <Architecture onNavigate={setCurrentPage} />
-                )}
-                {currentPage === "billing" && <Billing />}
-                {currentPage === "profile" && <Profile />}
-                {currentPage === "create-org" && (
-                  <CreateOrganization
-                    onNavigate={(page) => setCurrentPage(page as Page)}
-                    onOrgCreated={handleOrgCreated}
-                  />
-                )}
-                {currentPage === "privacy-vault" && (
-                  <PrivacyVault onNavigate={(page) => setCurrentPage(page as Page)} isSandbox={activeOrg?.type === "sandbox"} />
-                )}
-                {currentPage === "verify-proof" && (
-                  <VerifyProof onNavigate={(page) => setCurrentPage(page as Page)} />
-                )}
-                {currentPage === "audit-proofs" && (
-                  <AuditProofs onNavigate={(page) => setCurrentPage(page as Page)} />
-                )}
-              </main>
-            </div>
+              </div>
+              <ThemeToggle />
+            </header>
+
+            <main className="flex-1 overflow-auto p-8">
+              {currentPage === "dashboard" && (
+                <Dashboard onNavigate={setCurrentPage} />
+              )}
+              {currentPage === "upload" && <UploadPage onNavigate={setCurrentPage} isSandbox={activeOrg?.type === "sandbox"} />}
+              {currentPage === "documents" && (
+                <Documents onNavigate={setCurrentPage} isSandbox={activeOrg?.type === "sandbox"} />
+              )}
+              {currentPage === "architecture" && (
+                <Architecture onNavigate={setCurrentPage} />
+              )}
+              {currentPage === "billing" && <Billing />}
+              {currentPage === "profile" && <Profile />}
+              {currentPage === "subscribe" && <Subscribe onSuccess={() => setCurrentPage("dashboard")} />}
+              {currentPage === "create-org" && (
+                <CreateOrganization
+                  onNavigate={(page) => setCurrentPage(page as Page)}
+                  onOrgCreated={handleOrgCreated}
+                />
+              )}
+              {currentPage === "privacy-vault" && (
+                <PrivacyVault onNavigate={(page) => setCurrentPage(page as Page)} isSandbox={activeOrg?.type === "sandbox"} />
+              )}
+              {currentPage === "verify-proof" && (
+                <VerifyProof onNavigate={(page) => setCurrentPage(page as Page)} />
+              )}
+              {currentPage === "audit-proofs" && (
+                <AuditProofs onNavigate={(page) => setCurrentPage(page as Page)} />
+              )}
+            </main>
           </div>
-        </SidebarProvider>
-      )}
+        </div>
+      </SidebarProvider>
       <Toaster />
     </>
   );

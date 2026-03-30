@@ -77,11 +77,19 @@ The Liquid Encrypted Data System is a security platform that utilizes quantum-re
 - **Frontend**: DocumentCard displays classification badge, confidentiality level, language tag, keyword tags (up to 4), and summary with tooltip (showing key entities on hover).
 - **Security**: Document content is sent to xAI only as a truncated text preview; binary files get minimal metadata. Raw file content is never stored in metadata. Grok errors are caught and logged without blocking uploads.
 
+### Landing Page & Auth UI
+- **Split-panel landing page** (`LandingPage.tsx`): Left panel (45%) dark navy with beast image slideshow (3 images auto-rotating every 5s), feature highlights, and security credentials; Right panel (55%) with Peek.PNG background, dark overlay, glass-morphism login/signup card
+- **Cookie card**: Always shows on every visit (no localStorage persistence), Accept All / Reject All both dismiss — no real cookie logic
+- **"Start a Free Trial"**: Green label text on login card — non-functional placeholder for future 1-Day Pass
+- **Subscription gate removed**: Users land directly in dashboard after signup/login, no forced subscription page
+- **Subscription sidebar page**: Pricing cards and Stripe payment flow accessible from "Subscription" sidebar nav item (replaces forced gate flow)
+- **Auth view toggle**: Login/signup forms toggle within the same landing page card
+
 ### Feature Specifications
 - Document upload with automatic fragmentation and encryption.
 - Secure document retrieval and reconstitution.
 - User signup/login with JWT (includes organizationId in token).
-- Subscription plan selection and payment processing via Stripe.
+- Subscription plan selection and payment processing via Stripe (accessible from sidebar).
 - Admin console for user, role, subscription, and audit log management.
 - Owner bootstrap functionality via environment variables.
 - Organization management: create production orgs, switch between orgs, manage members.

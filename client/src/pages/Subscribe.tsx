@@ -212,10 +212,9 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
     createSetupIntentMutation.mutate();
   };
 
-  // Show active subscription status if user already has one
   if (currentSubscription?.subscription?.status === "active") {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8">
+      <div className="flex items-center justify-center py-12">
         <Card className="max-w-2xl w-full">
           <CardHeader>
             <div className="flex items-center justify-center mb-4">
@@ -240,10 +239,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
             </div>
           </CardContent>
           <CardFooter className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={() => window.history.back()}>
-              Go Back
-            </Button>
-            <Button className="flex-1" onClick={onSuccess}>
+            <Button className="flex-1" onClick={onSuccess} data-testid="button-continue-dashboard">
               Continue to Dashboard
             </Button>
           </CardFooter>
@@ -254,7 +250,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
 
   if (plansLoading || stripeConfigLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="flex items-center justify-center py-12">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
       </div>
     );
@@ -263,7 +259,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
   // Show error if plans failed to load
   if (plansError) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8">
+      <div className="flex items-center justify-center py-12">
         <Card className="max-w-2xl w-full">
           <CardHeader>
             <CardTitle className="text-destructive">Failed to Load Plans</CardTitle>
@@ -289,7 +285,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
   // Show message if no plans available
   if (!plans || plans.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-8">
+      <div className="flex items-center justify-center py-12">
         <Card className="max-w-2xl w-full">
           <CardHeader>
             <CardTitle>No Plans Available</CardTitle>
@@ -309,7 +305,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
 
   if (setupClientSecret && selectedPlanId) {
     return (
-      <div className="min-h-screen p-8">
+      <div className="py-4">
         <PaymentMethodWrapper
           clientSecret={setupClientSecret}
           selectedPlanId={selectedPlanId}
@@ -320,7 +316,7 @@ export default function Subscribe({ onSuccess }: SubscribeProps) {
   }
 
   return (
-    <div className="min-h-screen p-8">
+    <div>
       <div className="max-w-7xl mx-auto">
         <div className="text-center mb-12">
           <div className="flex items-center justify-center gap-2 mb-4">
