@@ -240,10 +240,6 @@ async function backfillOrganizations() {
   // Backfill organizations for existing users
   await backfillOrganizations();
 
-  // Seed sandbox ZKP demo data
-  const { seedSandboxProofs } = await import("./proof-seed");
-  await seedSandboxProofs();
-  
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -278,5 +274,12 @@ async function backfillOrganizations() {
     // Start background jobs
     startQuotaWarningJob();
     log('[Server] Quota warning job started');
+
+    // Seed sandbox ZKP demo data in background (non-blocking)
+    import("./proof-seed").then(({ seedSandboxProofs }) => {
+      seedSandboxProofs().catch((err: any) => {
+        console.error("[ZKP Seed] Background seeding failed:", err);
+      });
+    });
   });
 })();
