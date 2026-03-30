@@ -3,12 +3,10 @@ import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card"
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 
-type DocumentStatus = "liquid" | "reconstituted" | "accessible";
-
 interface DocumentCardProps {
   id: string;
   name: string;
-  status: DocumentStatus;
+  status: string;
   fragmentCount: number;
   lastAccessed?: string;
   size: string;
@@ -18,7 +16,7 @@ interface DocumentCardProps {
   onLock?: () => void;
 }
 
-const statusConfig = {
+const statusConfig: Record<string, { label: string; color: string; icon: typeof Lock }> = {
   liquid: {
     label: "Liquid",
     color: "bg-chart-1/10 text-chart-1 border-chart-1/20",
@@ -34,6 +32,22 @@ const statusConfig = {
     color: "bg-chart-3/10 text-chart-3 border-chart-3/20",
     icon: Eye,
   },
+  solid: {
+    label: "Solid",
+    color: "bg-muted text-muted-foreground border-muted",
+    icon: FileText,
+  },
+  liquified: {
+    label: "Liquified",
+    color: "bg-chart-1/10 text-chart-1 border-chart-1/20",
+    icon: Lock,
+  },
+};
+
+const defaultStatusConfig = {
+  label: "Unknown",
+  color: "bg-muted text-muted-foreground border-muted",
+  icon: FileText,
 };
 
 export function DocumentCard({
@@ -47,7 +61,7 @@ export function DocumentCard({
   onDelete,
   onLock,
 }: DocumentCardProps) {
-  const config = statusConfig[status];
+  const config = statusConfig[status] || defaultStatusConfig;
   const StatusIcon = config.icon;
 
   return (
