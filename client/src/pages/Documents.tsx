@@ -299,10 +299,11 @@ export default function Documents({ onNavigate, isSandbox }: DocumentsProps) {
               key={doc.id}
               id={doc.id}
               name={doc.name}
-              status={doc.status as "liquid" | "reconstituted" | "accessible"}
+              status={doc.status}
               fragmentCount={doc.fragmentCount}
               lastAccessed={doc.lastAccessed ? formatTimestamp(new Date(doc.lastAccessed).toISOString()) : undefined}
               size={formatFileSize(doc.size)}
+              metadata={(doc as any).metadata || null}
               onView={() => handleView(doc.id)}
               onDownload={() => handleDownload(doc.id)}
               onDelete={() => {

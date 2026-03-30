@@ -1,7 +1,21 @@
-import { FileText, Download, Trash2, Eye, Lock } from "lucide-react";
+import { FileText, Download, Trash2, Eye, Lock, Brain, Shield, Globe } from "lucide-react";
 import { Card, CardHeader, CardContent, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+
+interface DocumentMetadata {
+  classification: string;
+  tags: string[];
+  summary: string;
+  keyEntities: string[];
+  confidentialityLevel: string;
+  language: string;
+}
 
 interface DocumentCardProps {
   id: string;
@@ -10,6 +24,7 @@ interface DocumentCardProps {
   fragmentCount: number;
   lastAccessed?: string;
   size: string;
+  metadata?: DocumentMetadata | null;
   onView: () => void;
   onDownload: () => void;
   onDelete: () => void;
@@ -50,12 +65,33 @@ const defaultStatusConfig = {
   icon: FileText,
 };
 
+const confidentialityColors: Record<string, string> = {
+  public: "bg-chart-3/10 text-chart-3 border-chart-3/20",
+  internal: "bg-chart-4/10 text-chart-4 border-chart-4/20",
+  confidential: "bg-chart-5/10 text-chart-5 border-chart-5/20",
+  highly_confidential: "bg-destructive/10 text-destructive border-destructive/20",
+};
+
+const classificationLabels: Record<string, string> = {
+  financial: "Financial",
+  legal: "Legal",
+  technical: "Technical",
+  medical: "Medical",
+  personal: "Personal",
+  corporate: "Corporate",
+  academic: "Academic",
+  government: "Government",
+  correspondence: "Correspondence",
+  other: "General",
+};
+
 export function DocumentCard({
   name,
   status,
   fragmentCount,
   lastAccessed,
   size,
+  metadata,
   onView,
   onDownload,
   onDelete,
@@ -84,7 +120,7 @@ export function DocumentCard({
         </Badge>
       </CardHeader>
 
-      <CardContent className="pb-3">
+      <CardContent className="pb-3 space-y-2">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
           <div className="flex items-center gap-1">
             <span className="font-mono">{fragmentCount}</span>
@@ -97,6 +133,62 @@ export function DocumentCard({
             </div>
           )}
         </div>
+
+        {metadata && (
+          <div className="space-y-2 pt-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {metadata.classification && (
+                <Badge variant="secondary" className="text-[10px] h-5" data-testid={`badge-classification-${metadata.classification}`}>
+                  <Brain className="w-2.5 h-2.5 mr-0.5" />
+                  {classificationLabels[metadata.classification] || metadata.classification}
+                </Badge>
+              )}
+              {metadata.confidentialityLevel && (
+                <Badge variant="outline" className={`text-[10px] h-5 border ${confidentialityColors[metadata.confidentialityLevel] || ""}`} data-testid="badge-confidentiality">
+                  <Shield className="w-2.5 h-2.5 mr-0.5" />
+                  {metadata.confidentialityLevel.replace("_", " ")}
+                </Badge>
+              )}
+              {metadata.language && metadata.language !== "english" && (
+                <Badge variant="outline" className="text-[10px] h-5" data-testid="badge-language">
+                  <Globe className="w-2.5 h-2.5 mr-0.5" />
+                  {metadata.language}
+                </Badge>
+              )}
+            </div>
+
+            {metadata.tags && metadata.tags.length > 0 && (
+              <div className="flex items-center gap-1 flex-wrap">
+                {metadata.tags.slice(0, 4).map((tag) => (
+                  <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground" data-testid={`tag-${tag}`}>
+                    {tag}
+                  </span>
+                ))}
+                {metadata.tags.length > 4 && (
+                  <span className="text-[10px] text-muted-foreground">+{metadata.tags.length - 4}</span>
+                )}
+              </div>
+            )}
+
+            {metadata.summary && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <p className="text-[11px] text-muted-foreground line-clamp-2 cursor-default" data-testid="text-summary">
+                    {metadata.summary}
+                  </p>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="text-xs">{metadata.summary}</p>
+                  {metadata.keyEntities && metadata.keyEntities.length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Key entities: {metadata.keyEntities.join(", ")}
+                    </p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            )}
+          </div>
+        )}
       </CardContent>
 
       <CardFooter className="flex gap-2 pt-3 border-t">

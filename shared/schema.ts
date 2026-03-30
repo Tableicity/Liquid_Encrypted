@@ -339,6 +339,24 @@ export const proofUsage = pgTable("proof_usage", {
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// Document Metadata (Grok Intelligence)
+export const documentMetadata = pgTable("document_metadata", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  documentId: varchar("document_id", { length: 255 }).notNull().unique().references(() => documents.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id, { onDelete: "cascade" }),
+  classification: varchar("classification", { length: 100 }),
+  tags: text("tags").array(),
+  summary: text("summary"),
+  keyEntities: text("key_entities").array(),
+  confidentialityLevel: varchar("confidentiality_level", { length: 50 }),
+  language: varchar("language", { length: 50 }),
+  analyzedAt: timestamp("analyzed_at").notNull().defaultNow(),
+});
+
+// Document Metadata Types
+export type DocumentMetadata = typeof documentMetadata.$inferSelect;
+export type InsertDocumentMetadata = typeof documentMetadata.$inferInsert;
+
 // ZKP Types
 export type CommitmentRecord = typeof commitmentRecords.$inferSelect;
 export type InsertCommitmentRecord = typeof commitmentRecords.$inferInsert;
@@ -385,6 +403,7 @@ export const insertCommitmentRecordSchema = createInsertSchema(commitmentRecords
 export const insertProofRequestSchema = createInsertSchema(proofRequests).omit({ id: true, createdAt: true, completedAt: true, errorMessage: true });
 export const insertProofResultSchema = createInsertSchema(proofResults).omit({ id: true, createdAt: true });
 export const insertProofUsageSchema = createInsertSchema(proofUsage).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertDocumentMetadataSchema = createInsertSchema(documentMetadata).omit({ id: true, analyzedAt: true });
 
 // Custom validation schemas
 export const signupSchema = z.object({

@@ -14,17 +14,19 @@ import type {
   CommitmentRecord, InsertCommitmentRecord,
   ProofRequest, InsertProofRequest,
   ProofResult, InsertProofResult,
-  ProofUsage, InsertProofUsage
+  ProofUsage, InsertProofUsage,
+  DocumentMetadata, InsertDocumentMetadata
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, desc, sql as drizzleSql, isNull } from "drizzle-orm";
+import { eq, and, desc, sql as drizzleSql, isNull, inArray } from "drizzle-orm";
 import postgres from "postgres";
 import { 
   documents, fragments, chatSessions, 
   users, subscriptions, subscriptionPlans,
   storageUsage, gracePeriods, payments, auditLogs, quotaWarnings,
   organizations, organizationMembers,
-  commitmentRecords, proofRequests, proofResults, proofUsage
+  commitmentRecords, proofRequests, proofResults, proofUsage,
+  documentMetadata
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -142,6 +144,12 @@ export interface IStorage {
   getOrCreateProofUsage(organizationId: string, periodStart: Date, periodEnd: Date): Promise<ProofUsage>;
   incrementProofUsage(id: string, field: "proofsGenerated" | "proofsVerified"): Promise<ProofUsage | undefined>;
   getProofUsageByOrg(organizationId: string): Promise<ProofUsage[]>;
+
+  // Document Metadata (Grok Intelligence)
+  createDocumentMetadata(metadata: InsertDocumentMetadata): Promise<DocumentMetadata>;
+  getDocumentMetadata(documentId: string): Promise<DocumentMetadata | undefined>;
+  getDocumentMetadataByOrg(organizationId: string): Promise<DocumentMetadata[]>;
+  getDocumentMetadataBatch(documentIds: string[]): Promise<DocumentMetadata[]>;
 }
 
 const client = postgres(process.env.DATABASE_URL!);
@@ -936,6 +944,29 @@ export class PostgresStorage implements IStorage {
     return db.select().from(proofUsage)
       .where(eq(proofUsage.organizationId, organizationId))
       .orderBy(desc(proofUsage.billingPeriodStart));
+  }
+
+  async createDocumentMetadata(metadata: InsertDocumentMetadata): Promise<DocumentMetadata> {
+    const result = await db.insert(documentMetadata).values(metadata).returning();
+    return result[0];
+  }
+
+  async getDocumentMetadata(documentId: string): Promise<DocumentMetadata | undefined> {
+    const result = await db.select().from(documentMetadata)
+      .where(eq(documentMetadata.documentId, documentId))
+      .limit(1);
+    return result[0];
+  }
+
+  async getDocumentMetadataByOrg(organizationId: string): Promise<DocumentMetadata[]> {
+    return db.select().from(documentMetadata)
+      .where(eq(documentMetadata.organizationId, organizationId));
+  }
+
+  async getDocumentMetadataBatch(documentIds: string[]): Promise<DocumentMetadata[]> {
+    if (documentIds.length === 0) return [];
+    return db.select().from(documentMetadata)
+      .where(inArray(documentMetadata.documentId, documentIds));
   }
 }
 

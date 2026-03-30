@@ -702,7 +702,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
         documents = await storage.getDocumentsByUserId(req.userId!);
       }
       
-      res.json(documents.map(toPublicDocument));
+      const publicDocs = documents.map(toPublicDocument);
+      
+      const metadataMap: Record<string, any> = {};
+      try {
+        const docIds = documents.map(d => d.id);
+        const allMeta = await storage.getDocumentMetadataBatch(docIds);
+        for (const meta of allMeta) {
+          metadataMap[meta.documentId] = {
+            classification: meta.classification,
+            tags: meta.tags,
+            summary: meta.summary,
+            keyEntities: meta.keyEntities,
+            confidentialityLevel: meta.confidentialityLevel,
+            language: meta.language,
+          };
+        }
+      } catch (metaErr) {
+        console.error("[Grok] Error fetching metadata:", metaErr);
+      }
+
+      const enrichedDocs = publicDocs.map((doc: any) => ({
+        ...doc,
+        metadata: metadataMap[doc.id] || null,
+      }));
+
+      res.json(enrichedDocs);
     } catch (error) {
       console.error("Error fetching documents:", error);
       res.status(500).json({ error: "Failed to fetch documents" });
@@ -833,6 +858,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Create comprehensive audit log for successful document upload
       await auditDocumentUpload(storage, userId, req.userEmail!, doc.id, fileName, fileSize, req);
+
+      // Grok document intelligence — analyze before responding (non-blocking on failure)
+      try {
+        const { analyzeDocument, isGrokEnabled } = await import("./grok-service");
+        if (isGrokEnabled()) {
+          const analysis = await analyzeDocument(fileName, fileData, req.file!.mimetype);
+          if (analysis) {
+            await storage.createDocumentMetadata({
+              documentId: doc.id,
+              organizationId: (req as any).organizationId || null,
+              classification: analysis.classification,
+              tags: analysis.tags,
+              summary: analysis.summary,
+              keyEntities: analysis.keyEntities,
+              confidentialityLevel: analysis.confidentialityLevel,
+              language: analysis.language,
+            });
+          }
+        }
+      } catch (grokError) {
+        console.error("[Grok] Analysis failed (upload continues):", grokError);
+      }
 
       // Build response with optional grace period warning
       const response: any = {

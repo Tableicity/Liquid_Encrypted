@@ -67,6 +67,16 @@ The Liquid Encrypted Data System is a security platform that utilizes quantum-re
   - `AuditProofs.tsx` — Proof history with usage stats
 - **Security**: Document ownership check on commitment creation, org-scoped access control, proofHex never exposed in frontend, rate limiting planned for public verify
 
+### Grok Document Intelligence (Phase 3)
+- **Feature Flag**: Auto-enabled when `GROK_API_KEY` is set (no separate feature flag needed)
+- **API Provider**: xAI (OpenAI-compatible), model `grok-3-mini`, baseURL `https://api.x.ai/v1`
+- **Table**: `document_metadata` (unique documentId FK, classification, tags, summary, keyEntities, confidentialityLevel, language, analyzedAt) — org-scoped
+- **Service** (`server/grok-service.ts`): Extracts text preview (3000 chars max), sends to Grok for analysis, returns structured JSON. 15s timeout with AbortController.
+- **Upload Integration**: Grok analyzes document content ONCE at upload time (after encryption/storage, before response). Graceful fallback — upload succeeds even if Grok fails.
+- **API Enrichment**: GET `/api/documents` returns metadata alongside each document (single batch query, not N+1).
+- **Frontend**: DocumentCard displays classification badge, confidentiality level, language tag, keyword tags (up to 4), and summary with tooltip (showing key entities on hover).
+- **Security**: Document content is sent to xAI only as a truncated text preview; binary files get minimal metadata. Raw file content is never stored in metadata. Grok errors are caught and logged without blocking uploads.
+
 ### Feature Specifications
 - Document upload with automatic fragmentation and encryption.
 - Secure document retrieval and reconstitution.
