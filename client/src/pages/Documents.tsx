@@ -183,7 +183,7 @@ export default function Documents({ onNavigate, isSandbox }: DocumentsProps) {
     return matchesSearch && matchesStatus;
   });
 
-  const effectiveSessionId = isSandbox ? null : authenticatedSessionId;
+  const effectiveSessionId = authenticatedSessionId;
 
   const handleView = (id: string) => {
     if (effectiveSessionId) {
@@ -330,24 +330,10 @@ export default function Documents({ onNavigate, isSandbox }: DocumentsProps) {
           <DialogHeader>
             <DialogTitle>Authenticate to Access Document</DialogTitle>
           </DialogHeader>
-          {isSandbox ? (
-            <div className="flex flex-col items-center justify-center py-12 space-y-4 text-center" data-testid="sandbox-ai-locked">
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                <Lock className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-lg font-semibold">AI Story Authentication</h3>
-                <p className="text-sm text-muted-foreground max-w-md">
-                  Create a live organization to unlock AI-powered story-based authentication for your documents.
-                </p>
-              </div>
-            </div>
-          ) : (
-            <ChatInterface 
-              onAuthSuccess={handleAuthSuccess} 
-              existingSessionId={authenticatedSessionId || undefined}
-            />
-          )}
+          <ChatInterface 
+            onAuthSuccess={handleAuthSuccess} 
+            existingSessionId={authenticatedSessionId || undefined}
+          />
         </DialogContent>
       </Dialog>
 
