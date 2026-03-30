@@ -1,25 +1,42 @@
 # Liquid Encrypted Data System 2.2
 
-Revolutionary quantum-resistant security platform featuring data fragmentation, distributed storage, and AI-powered story-based authentication.
+Revolutionary quantum-resistant security platform featuring data fragmentation, distributed storage, AI-powered story-based authentication, zero knowledge proofs, and Grok-powered document intelligence.
 
 ![Security Status](https://img.shields.io/badge/encryption-AES--256--CBC-blue)
 ![Authentication](https://img.shields.io/badge/auth-AI--Story--Based-green)
+![ZKP](https://img.shields.io/badge/ZKP-Noir--BN254-purple)
+![Intelligence](https://img.shields.io/badge/intelligence-Grok--3--mini-orange)
 ![License](https://img.shields.io/badge/license-MIT-brightgreen)
 
-## 🔐 Core Innovation
+## Core Innovation
 
 Documents exist in three states:
 - **Solid**: Original uploaded file
 - **Liquid**: Fragmented and encrypted across 8 distributed nodes (default secure state)
 - **Accessible**: Temporarily assembled for authorized access after AI authentication
 
-## ✨ Key Features
+## Key Features
 
 ### Security Architecture
 - **Quantum-Resistant Encryption**: AES-256-CBC with double encryption (file-level + fragment-level)
 - **Data Fragmentation**: Documents split into 8 encrypted pieces distributed across nodes
-- **AI-Powered Authentication**: OpenAI GPT-4 analyzes personal stories for identity verification
+- **AI-Powered Authentication**: OpenAI GPT-4o-mini analyzes personal stories for identity verification
 - **Tamper-Proof Audit Logging**: HMAC-SHA256 signed audit trails for compliance
+
+### Zero Knowledge Proofs (Noir)
+- **Commitment Generation**: SHA-256 commitments for document ownership verification
+- **Proof Generation & Verification**: BN254 curve proofs via Noir/Barretenberg
+- **Public Verification**: Third parties can verify proofs without authentication
+- **Usage Tracking**: Tier-based proof limits (personal: 10/mo, business: 100/mo, enterprise: unlimited)
+- **Sandbox Demo**: 1-proof cap for sandbox organizations
+
+### Grok Document Intelligence
+- **Automatic Classification**: Documents classified at upload (financial, legal, technical, medical, etc.)
+- **Smart Tagging**: AI-generated keyword tags for document discovery
+- **Content Summarization**: Concise summaries with key entity extraction
+- **Confidentiality Detection**: Automatic confidentiality level assignment (public to highly confidential)
+- **Language Detection**: Multi-language document support
+- **Dual-LLM Architecture**: OpenAI handles authentication, Grok handles document intelligence
 
 ### Role-Based Access Control (RBAC)
 5-tier role system with granular permissions:
@@ -29,30 +46,44 @@ Documents exist in three states:
 - **Super Admin**: User management, system configuration
 - **Owner**: Full system control and security oversight
 
+### Multi-Tenant Organizations
+- **Sandbox Organizations**: Auto-created on signup for exploration
+- **Production Organizations**: User-initiated for real workloads
+- **Organization Switching**: Seamless context switching between orgs
+- **Member Management**: Invite and manage team members per organization
+- **Org-Scoped Data**: Documents, subscriptions, proofs, and audit logs scoped per org
+
 ### Subscription Management
 - **Personal Plan**: $19.99/mo - 100 documents, 10GB storage
 - **Business Plan**: $99.99/mo - Unlimited documents, 100GB storage
 - **Enterprise Plan**: $999.99/mo - Unlimited everything, priority support
+
+### Storage Quota Management
+- **Byte-Precise Tracking**: Dual-field architecture eliminates rounding errors
+- **Grace Periods**: 7-day enforcement windows when quota is exceeded
+- **Atomic Operations**: Concurrent upload race condition protection
+- **Pre-Upload Middleware**: Three-tier quota checks before upload
 
 ### Payment Processing
 - Stripe integration with test/live mode toggle
 - Secure two-step payment flow (SetupIntent + Subscription)
 - Automated subscription lifecycle management
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
-- Node.js 18+ and npm
+- Node.js 20+ and npm
 - PostgreSQL database
-- OpenAI API key
+- OpenAI API key (for story authentication)
+- Grok API key (for document intelligence, optional)
 - Stripe account (test/live keys)
 
 ### Installation
 
 1. **Clone the repository**
 ```bash
-git clone <your-repo-url>
-cd liquid-encrypt
+git clone https://github.com/Tableicity/Liquid_Encrypted.git
+cd Liquid_Encrypted
 ```
 
 2. **Install dependencies**
@@ -68,11 +99,13 @@ Create a `.env` file in the root directory:
 # Database
 DATABASE_URL=postgresql://user:password@host:5432/database
 
-# OpenAI (for AI authentication)
+# OpenAI (for AI story authentication)
 OPENAI_API_KEY=sk-...
 
+# Grok (for document intelligence - optional)
+GROK_API_KEY=xai-...
+
 # Stripe (Payment Processing)
-STRIPE_MODE=test
 STRIPE_SECRET_KEY=sk_live_...
 VITE_STRIPE_PUBLIC_KEY=pk_live_...
 TESTING_STRIPE_SECRET_KEY=sk_test_...
@@ -83,6 +116,10 @@ SESSION_SECRET=your-random-secret-key-here
 
 # Owner Account (Auto-bootstrapped)
 OWNER_EMAIL=your-email@example.com
+
+# Zero Knowledge Proofs (optional)
+NOIR_ENABLED=true
+VITE_NOIR_ENABLED=true
 ```
 
 4. **Initialize the database**
@@ -97,31 +134,46 @@ npm run dev
 
 The application will be available at `http://localhost:5000`
 
-## 📁 Project Structure
+## Project Structure
 
 ```
-liquid-encrypt/
-├── client/                 # React frontend
+Liquid_Encrypted/
+├── client/                    # React frontend
 │   ├── src/
-│   │   ├── components/    # Reusable UI components
-│   │   ├── pages/         # Page components
-│   │   └── lib/           # Utilities and helpers
-├── server/                # Express backend
-│   ├── routes.ts          # API endpoints
-│   ├── storage.ts         # Database abstraction
-│   ├── middleware.ts      # Auth & security middleware
-│   ├── stripe-service.ts  # Payment processing
-│   └── utils/             # Server utilities
-├── shared/                # Shared types & schemas
-│   └── schema.ts          # Database schema (Drizzle ORM)
-└── attached_assets/       # User uploaded files (excluded from git)
+│   │   ├── components/       # Reusable UI components
+│   │   │   ├── DocumentCard.tsx    # Document display with Grok intelligence
+│   │   │   ├── ChatInterface.tsx   # AI story authentication
+│   │   │   └── ui/                 # Shadcn/ui components
+│   │   ├── pages/            # Page components
+│   │   │   ├── Documents.tsx       # Document management
+│   │   │   ├── PrivacyVault.tsx    # ZKP commitments & proofs
+│   │   │   ├── VerifyProof.tsx     # Proof verification
+│   │   │   └── AuditProofs.tsx     # Proof history
+│   │   └── lib/              # Utilities and helpers
+├── server/                    # Express backend
+│   ├── routes.ts             # Core API endpoints
+│   ├── storage.ts            # Database abstraction (IStorage)
+│   ├── middleware.ts         # Auth, RBAC, & security middleware
+│   ├── grok-service.ts       # Grok document intelligence
+│   ├── proof-service.ts      # ZKP proof generation/verification
+│   ├── proof-routes.ts       # ZKP API endpoints
+│   ├── proof-config.ts       # ZKP tier limits & configuration
+│   ├── org-routes.ts         # Organization management
+│   ├── stripe-service.ts     # Payment processing
+│   └── admin-routes.ts       # Admin console endpoints
+├── shared/                    # Shared types & schemas
+│   └── schema.ts             # Database schema (Drizzle ORM)
+├── .github/workflows/        # CI/CD pipelines
+│   ├── prod.yml              # Production deployment
+│   └── staging.yml           # Staging deployment
+└── Dockerfile                # Container configuration
 ```
 
-## 🔑 Owner Account Bootstrap
+## Owner Account Bootstrap
 
 On first startup, the system automatically creates an owner account using the `OWNER_EMAIL` from your environment variables with a temporary password. **Important**: Change this password immediately after first login!
 
-## 🧪 Testing with Stripe
+## Testing with Stripe
 
 The system defaults to **TEST MODE** for safe development:
 
@@ -135,7 +187,7 @@ Use any future date for expiry, any 3 digits for CVC, and any ZIP code.
 ### Switch to Live Mode
 Set `STRIPE_MODE=live` in your environment variables and restart.
 
-## 🗄️ Database Schema
+## Database Schema
 
 Built with **Drizzle ORM** and **PostgreSQL**:
 
@@ -143,12 +195,22 @@ Built with **Drizzle ORM** and **PostgreSQL**:
 - `user_roles` - RBAC role assignments
 - `documents` - Document metadata and encryption info
 - `fragments` - Encrypted document fragments
+- `document_metadata` - Grok-generated intelligence (classification, tags, summary)
+- `organizations` - Multi-tenant organization management
+- `organization_members` - Org membership and roles
 - `subscriptions` - Active user subscriptions
+- `subscription_plans` - Available plan tiers
 - `payments` - Payment transaction records
+- `storage_usage` - Byte-precise storage tracking
+- `grace_periods` - Quota overage grace period management
 - `chat_sessions` - AI authentication sessions
 - `audit_logs` - Tamper-proof security audit trail
+- `commitment_records` - ZKP document commitments
+- `proof_requests` - ZKP proof generation requests
+- `proof_results` - ZKP proof verification results
+- `proof_usage` - ZKP tier-based usage tracking
 
-## 🔒 Security Features
+## Security Features
 
 ### Encryption
 - **Algorithm**: AES-256-CBC
@@ -158,15 +220,21 @@ Built with **Drizzle ORM** and **PostgreSQL**:
 
 ### Authentication
 - **JWT Tokens**: 30-day expiration for user sessions
-- **Story-Based Verification**: AI analyzes personal narratives
-- **Session Management**: Express sessions with PostgreSQL store
+- **Story-Based Verification**: AI analyzes personal narratives for document access
+- **Session Management**: Express sessions with 30-minute expiration
+
+### Zero Knowledge Proofs
+- **Commitment Scheme**: SHA-256 hash commitments
+- **Proof System**: Noir circuits on BN254 curve via Barretenberg
+- **Salt Handling**: 31-byte truncation for field compatibility
+- **Public Verification**: Stateless proof verification without authentication
 
 ### Audit Logging
 - **HMAC-SHA256 Signatures**: Cryptographically signed audit logs
 - **Comprehensive Coverage**: All security events logged
 - **Tamper Detection**: Signature verification prevents log manipulation
 
-## 📊 Admin Console
+## Admin Console
 
 Access the admin console at `/admin` with appropriate role permissions:
 
@@ -176,36 +244,49 @@ Access the admin console at `/admin` with appropriate role permissions:
 - **Audit Logs**: Review security events and access patterns
 - **System Health**: Monitor documents, fragments, and system status
 
-## 🛠️ Development
+## AWS Deployment
+
+### Branch Strategy
+- `main` - Production releases
+- `staging` - Staging environment for testing
+
+### CI/CD Pipelines
+- Production deploys from `main` to `prod-liquid` ECS cluster
+- Staging deploys from `staging` to `stg-liquid` ECS cluster
+
+### Health Check
+- `/healthz` endpoint returns database connection status for ALB health checks
+
+## Development
 
 ### Available Scripts
 - `npm run dev` - Start development server (frontend + backend)
 - `npm run db:push` - Sync database schema
 - `npm run build` - Build for production
+- `npm run start` - Run production build
 
 ### Tech Stack
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Shadcn/ui
-- **Backend**: Express.js, Node.js
+- **Frontend**: React 18, TypeScript, Tailwind CSS, Shadcn/ui, Radix UI
+- **Backend**: Express.js, Node.js 20
 - **Database**: PostgreSQL with Drizzle ORM
-- **Authentication**: JWT, Passport.js
+- **Authentication**: JWT + OpenAI GPT-4o-mini
+- **Document Intelligence**: xAI Grok-3-mini
+- **Zero Knowledge Proofs**: Noir 0.36.0 + Barretenberg
 - **Payment**: Stripe
-- **AI**: OpenAI GPT-4o-mini
+- **Build**: Vite (frontend) + esbuild (backend)
 
-## 🤝 Contributing
+## Contributing
 
 This is a proprietary security platform. Contributions are welcome with prior approval.
 
-## 📄 License
+## License
 
 MIT License - See LICENSE file for details
 
-## 🆘 Support
+## Support
 
 For issues, questions, or feature requests, please contact the development team.
 
 ---
 
 **Built with security first. Protected by quantum-resistant encryption.**
-# liquid-encrypt
-# Liquid_Encrypted
-# Liquid_Encrypted
