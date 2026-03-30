@@ -296,7 +296,7 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
               <p className="text-xs uppercase tracking-wider mb-3" style={{ color: "rgba(191, 219, 254, 0.5)" }}>
                 Platform Highlights
               </p>
-              <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-4">
                 {[
                   "8-fragment encrypted distribution",
                   "AI-powered story authentication",
@@ -306,7 +306,6 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                   "HMAC-SHA256 tamper-proof audit logs",
                   "5-tier role-based access control",
                   "Byte-precise storage quota enforcement",
-                  "Stripe subscription billing",
                 ].map((item) => (
                   <div key={item} className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />
