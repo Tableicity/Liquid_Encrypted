@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Form,
@@ -17,7 +16,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { setToken } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Lock, Mail, User, Shield, Cpu, Database, ChevronLeft, ChevronRight, Cookie, X } from "lucide-react";
+import { Lock, Mail, User, Shield, Cpu, Database, ChevronLeft, ChevronRight, Check } from "lucide-react";
 import beast01 from "@assets/beast-01-hash-wall.png";
 import beast02 from "@assets/beast-02-code-vault.png";
 import beast07 from "@assets/beast-07-lock-shield.png";
@@ -47,6 +46,8 @@ const slides = [
   { src: beast07, alt: "Lock Shield Defense" },
 ];
 
+const SLIDE_DURATIONS = [7200, 7200, 14400];
+
 const features = [
   { icon: Shield, title: "Quantum-Resistant", desc: "AES-256-CBC with double encryption layers" },
   { icon: Database, title: "Liquid Fragmentation", desc: "8-fragment distribution across storage nodes" },
@@ -56,27 +57,71 @@ const features = [
 
 function CookieCard({ onDismiss }: { onDismiss: () => void }) {
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 p-4" data-testid="cookie-banner">
-      <div className="max-w-2xl mx-auto bg-card/95 backdrop-blur-md border border-border rounded-md p-4 shadow-lg">
-        <div className="flex items-start gap-3">
-          <Cookie className="w-5 h-5 text-muted-foreground shrink-0 mt-0.5" />
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium mb-1">Cookie Notice</p>
-            <p className="text-xs text-muted-foreground">
-              We use cookies to enhance your experience. By continuing to use this site, you consent to our use of cookies.
-            </p>
+    <div
+      className="absolute z-[10]"
+      style={{
+        top: "150px",
+        left: "50%",
+        transform: "translateX(-50%)",
+        width: "87%",
+      }}
+      data-testid="cookie-banner"
+    >
+      <div
+        className="overflow-hidden rounded-xl"
+        style={{
+          background: "rgba(13, 20, 35, 0.97)",
+          border: "1px solid rgba(99, 179, 237, 0.3)",
+          boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+        }}
+      >
+        <div style={{ height: "4px", background: "#2B6CB0" }} />
+        <div className="p-4">
+          <div className="flex items-start gap-3">
+            <div
+              className="shrink-0 flex items-center justify-center"
+              style={{
+                width: "32px",
+                height: "32px",
+                borderRadius: "8px",
+                background: "rgba(99, 179, 237, 0.15)",
+                border: "1px solid rgba(99, 179, 237, 0.25)",
+              }}
+            >
+              <span className="text-sm">&#x1F36A;</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-white">We value your privacy</p>
+              <p className="text-xs leading-relaxed mt-1" style={{ color: "#A0AEC0" }}>
+                We use cookies to enhance your browsing experience, serve personalized content, and analyze our traffic.
+              </p>
+            </div>
           </div>
-          <button onClick={onDismiss} className="shrink-0 text-muted-foreground" data-testid="button-dismiss-cookies">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="flex items-center gap-2 mt-3 ml-8">
-          <Button size="sm" onClick={onDismiss} data-testid="button-accept-cookies">
-            Accept All
-          </Button>
-          <Button size="sm" variant="outline" onClick={onDismiss} data-testid="button-reject-cookies">
-            Reject All
-          </Button>
+          <div className="flex gap-2.5 mt-3.5">
+            <button
+              onClick={onDismiss}
+              className="flex-1 py-2 rounded-lg text-[13px] font-medium"
+              style={{
+                border: "1px solid rgba(99, 179, 237, 0.2)",
+                background: "transparent",
+                color: "#A0AEC0",
+              }}
+              data-testid="button-reject-cookies"
+            >
+              Reject All
+            </button>
+            <button
+              onClick={onDismiss}
+              className="flex-1 py-2 rounded-lg text-[13px] font-medium text-white"
+              style={{
+                background: "#2B6CB0",
+                border: "none",
+              }}
+              data-testid="button-accept-cookies"
+            >
+              Accept All
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -87,29 +132,36 @@ function ImageSlideshow() {
   const [current, setCurrent] = useState(0);
 
   useEffect(() => {
-    const timer = setInterval(() => {
+    const duration = SLIDE_DURATIONS[current] || 7200;
+    const timer = setTimeout(() => {
       setCurrent((prev) => (prev + 1) % slides.length);
-    }, 5000);
-    return () => clearInterval(timer);
-  }, []);
+    }, duration);
+    return () => clearTimeout(timer);
+  }, [current]);
 
   const prev = () => setCurrent((c) => (c - 1 + slides.length) % slides.length);
   const next = () => setCurrent((c) => (c + 1) % slides.length);
 
   return (
-    <div className="relative w-full aspect-[4/3] rounded-md overflow-hidden" data-testid="slideshow">
+    <div className="relative w-full rounded-xl overflow-hidden" style={{ aspectRatio: "16/10" }} data-testid="slideshow">
       {slides.map((slide, i) => (
         <img
           key={i}
           src={slide.src}
           alt={slide.alt}
-          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-700 ${
+          className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ease-in-out ${
             i === current ? "opacity-100" : "opacity-0"
           }`}
         />
       ))}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
-      <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-3">
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          background: "linear-gradient(135deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.2) 50%, transparent 100%)",
+          zIndex: 10,
+        }}
+      />
+      <div className="absolute bottom-3 left-0 right-0 flex items-center justify-center gap-3" style={{ zIndex: 11 }}>
         <button
           onClick={prev}
           className="bg-white/20 backdrop-blur-sm rounded-full p-1"
@@ -203,74 +255,139 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
 
   return (
     <div className="min-h-screen flex flex-col lg:flex-row">
-      <div className="lg:w-[45%] bg-[#0a0e27] text-white p-8 lg:p-12 flex flex-col justify-between min-h-[50vh] lg:min-h-screen relative overflow-hidden">
-        <div className="absolute inset-0 opacity-5">
-          <div className="absolute inset-0" style={{
-            backgroundImage: "radial-gradient(circle at 1px 1px, rgba(255,255,255,0.3) 1px, transparent 0)",
-            backgroundSize: "40px 40px",
-          }} />
-        </div>
-
-        <div className="relative z-10">
-          <div className="flex items-center gap-3 mb-2">
-            <Lock className="w-8 h-8 text-blue-400" />
-            <h1 className="text-3xl font-bold tracking-tight">Liquid Encrypt</h1>
-          </div>
-          <p className="text-blue-300/80 text-sm ml-11">Quantum-Resistant Document Security</p>
-        </div>
-
-        <div className="relative z-10 flex-1 flex flex-col justify-center py-8 lg:py-12 space-y-8">
-          <ImageSlideshow />
-
-          <div className="grid grid-cols-2 gap-4">
-            {features.map((f) => (
-              <div key={f.title} className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <f.icon className="w-4 h-4 text-blue-400" />
-                  <span className="text-sm font-medium">{f.title}</span>
-                </div>
-                <p className="text-xs text-blue-200/60 leading-relaxed">{f.desc}</p>
+      <div
+        className="hidden lg:flex lg:w-[45%] text-white flex-col overflow-y-auto"
+        style={{ background: "#0f1b2d" }}
+      >
+        <div className="p-10 xl:p-12 flex flex-col justify-between min-h-screen">
+          <div>
+            <div className="flex items-center gap-3 mb-2">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center">
+                <Lock className="w-4 h-4 text-white" />
               </div>
-            ))}
+              <h1 className="text-lg font-bold tracking-tight">Liquid Encrypt</h1>
+            </div>
+            <p className="text-sm leading-relaxed" style={{ color: "rgba(191, 219, 254, 0.8)" }}>
+              Quantum-Resistant Document Security
+            </p>
           </div>
-        </div>
 
-        <div className="relative z-10 text-xs text-blue-200/40 space-y-1">
-          <p>256-bit AES encryption with quantum-resistant architecture</p>
-          <p>SOC 2 Type II compliant infrastructure</p>
+          <div className="py-8 space-y-8">
+            <ImageSlideshow />
+
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }} className="pt-6">
+              <p className="text-xs uppercase tracking-wider mb-4" style={{ color: "rgba(191, 219, 254, 0.5)" }}>
+                Security Features
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                {features.map((f) => (
+                  <div key={f.title} className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Check className="w-3.5 h-3.5 text-green-400" />
+                      <span className="text-xs font-medium text-white">{f.title}</span>
+                    </div>
+                    <p className="text-xs leading-relaxed" style={{ color: "rgba(191, 219, 254, 0.7)" }}>{f.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)" }} className="pt-6">
+              <p className="text-xs uppercase tracking-wider mb-3" style={{ color: "rgba(191, 219, 254, 0.5)" }}>
+                Platform Highlights
+              </p>
+              <div className="space-y-2">
+                {[
+                  "8-fragment encrypted distribution",
+                  "AI-powered story authentication",
+                  "Zero Knowledge Proof commitments",
+                  "Grok document intelligence",
+                  "Multi-tenant organization support",
+                ].map((item) => (
+                  <div key={item} className="flex items-center gap-2">
+                    <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />
+                    <span className="text-xs" style={{ color: "rgba(191, 219, 254, 0.7)" }}>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="text-xs space-y-1" style={{ color: "rgba(191, 219, 254, 0.4)" }}>
+            <p>256-bit AES encryption with quantum-resistant architecture</p>
+            <p>SOC 2 Type II compliant infrastructure</p>
+          </div>
         </div>
       </div>
 
       <div
-        className="lg:w-[55%] relative flex items-center justify-center p-6 lg:p-12 min-h-[50vh] lg:min-h-screen"
+        className="flex-1 relative lg:sticky lg:top-0 lg:h-screen"
+        style={{ backgroundColor: "#0a1628" }}
       >
         <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${peekBg})` }}
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundImage: `url(${peekBg})`,
+            backgroundSize: "cover",
+            backgroundRepeat: "no-repeat",
+            backgroundPosition: "0% center",
+            zIndex: 1,
+          }}
         />
-        <div className="absolute inset-0 bg-black/70 backdrop-blur-[2px]" />
 
-        <div className="relative z-10 w-full max-w-md">
-          <Card className="bg-card/90 backdrop-blur-md border-border/50 shadow-2xl">
-            <CardHeader className="space-y-1 pb-4">
-              <div className="flex items-center justify-between gap-2 flex-wrap">
-                <CardTitle className="text-xl font-bold">
-                  {authView === "login" ? "Sign In" : "Create Account"}
-                </CardTitle>
-                <span
-                  className="text-xs font-medium text-emerald-500 cursor-default select-none"
-                  data-testid="label-free-trial"
-                >
-                  Start a Free Trial
-                </span>
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            backgroundColor: "rgba(10, 22, 40, 0.80)",
+            zIndex: 2,
+          }}
+        />
+
+        <div
+          className="lg:hidden absolute top-6 left-6 flex items-center gap-2"
+          style={{ zIndex: 3 }}
+        >
+          <div className="w-7 h-7 rounded-lg bg-blue-600 flex items-center justify-center">
+            <Lock className="w-3.5 h-3.5 text-white" />
+          </div>
+          <span className="text-white font-bold text-sm">Liquid Encrypt</span>
+        </div>
+
+        <div
+          className="absolute inset-0 overflow-y-auto flex items-center justify-center p-6"
+          style={{ zIndex: 3 }}
+        >
+          <div className="w-full max-w-[420px] relative">
+            <div
+              className="rounded-2xl p-8 relative"
+              style={{
+                background: "rgba(13, 20, 35, 0.92)",
+                border: "1px solid rgba(99, 179, 237, 0.2)",
+                boxShadow: "0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,179,237,0.08)",
+                backdropFilter: "blur(20px)",
+                WebkitBackdropFilter: "blur(20px)",
+              }}
+            >
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <h2 className="text-[22px] font-bold text-white">
+                    {authView === "login" ? "Sign In" : "Create Account"}
+                  </h2>
+                  <span
+                    className="text-xs font-medium cursor-default select-none"
+                    style={{ color: "#48BB78" }}
+                    data-testid="label-free-trial"
+                  >
+                    Start a Free Trial
+                  </span>
+                </div>
+                <p className="text-[13px] mt-1" style={{ color: "#718096" }}>
+                  {authView === "login"
+                    ? "Access your encrypted documents"
+                    : "Get started with quantum-resistant security"}
+                </p>
               </div>
-              <p className="text-sm text-muted-foreground">
-                {authView === "login"
-                  ? "Access your encrypted documents"
-                  : "Get started with quantum-resistant security"}
-              </p>
-            </CardHeader>
-            <CardContent>
+
               {authView === "login" ? (
                 <Form {...loginForm}>
                   <form onSubmit={loginForm.handleSubmit(onLoginSubmit)} className="space-y-4">
@@ -279,15 +396,20 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                       name="email"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Email</FormLabel>
+                          <FormLabel className="text-[0.8rem] font-medium" style={{ color: "#A0AEC0" }}>Email</FormLabel>
                           <FormControl>
                             <div className="relative">
-                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#718096" }} />
                               <Input
                                 {...field}
                                 type="email"
                                 placeholder="you@example.com"
-                                className="pl-10"
+                                className="pl-10 text-sm border"
+                                style={{
+                                  background: "rgba(255, 255, 255, 0.06)",
+                                  borderColor: "rgba(99, 179, 237, 0.2)",
+                                  color: "#E2E8F0",
+                                }}
                                 data-testid="input-email"
                               />
                             </div>
@@ -301,15 +423,20 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                       name="password"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Password</FormLabel>
+                          <FormLabel className="text-[0.8rem] font-medium" style={{ color: "#A0AEC0" }}>Password</FormLabel>
                           <FormControl>
                             <div className="relative">
-                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#718096" }} />
                               <Input
                                 {...field}
                                 type="password"
                                 placeholder="••••••••"
-                                className="pl-10"
+                                className="pl-10 text-sm border"
+                                style={{
+                                  background: "rgba(255, 255, 255, 0.06)",
+                                  borderColor: "rgba(99, 179, 237, 0.2)",
+                                  color: "#E2E8F0",
+                                }}
                                 data-testid="input-password"
                               />
                             </div>
@@ -321,14 +448,15 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                     {error && (
                       <div className="text-sm text-destructive" data-testid="text-error">{error}</div>
                     )}
-                    <Button
+                    <button
                       type="submit"
-                      className="w-full"
                       disabled={loginMutation.isPending}
+                      className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
+                      style={{ background: loginMutation.isPending ? "#2C5282" : "#2B6CB0" }}
                       data-testid="button-login"
                     >
                       {loginMutation.isPending ? "Signing in..." : "Sign In"}
-                    </Button>
+                    </button>
                   </form>
                 </Form>
               ) : (
@@ -339,14 +467,19 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                       name="name"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Full Name</FormLabel>
+                          <FormLabel className="text-[0.8rem] font-medium" style={{ color: "#A0AEC0" }}>Full Name</FormLabel>
                           <FormControl>
                             <div className="relative">
-                              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                              <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#718096" }} />
                               <Input
                                 {...field}
                                 placeholder="John Doe"
-                                className="pl-10"
+                                className="pl-10 text-sm border"
+                                style={{
+                                  background: "rgba(255, 255, 255, 0.06)",
+                                  borderColor: "rgba(99, 179, 237, 0.2)",
+                                  color: "#E2E8F0",
+                                }}
                                 data-testid="input-name"
                               />
                             </div>
@@ -360,15 +493,20 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                       name="email"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Email</FormLabel>
+                          <FormLabel className="text-[0.8rem] font-medium" style={{ color: "#A0AEC0" }}>Email</FormLabel>
                           <FormControl>
                             <div className="relative">
-                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#718096" }} />
                               <Input
                                 {...field}
                                 type="email"
                                 placeholder="you@example.com"
-                                className="pl-10"
+                                className="pl-10 text-sm border"
+                                style={{
+                                  background: "rgba(255, 255, 255, 0.06)",
+                                  borderColor: "rgba(99, 179, 237, 0.2)",
+                                  color: "#E2E8F0",
+                                }}
                                 data-testid="input-email"
                               />
                             </div>
@@ -382,15 +520,20 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                       name="password"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Password</FormLabel>
+                          <FormLabel className="text-[0.8rem] font-medium" style={{ color: "#A0AEC0" }}>Password</FormLabel>
                           <FormControl>
                             <div className="relative">
-                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ color: "#718096" }} />
                               <Input
                                 {...field}
                                 type="password"
                                 placeholder="••••••••"
-                                className="pl-10"
+                                className="pl-10 text-sm border"
+                                style={{
+                                  background: "rgba(255, 255, 255, 0.06)",
+                                  borderColor: "rgba(99, 179, 237, 0.2)",
+                                  color: "#E2E8F0",
+                                }}
                                 data-testid="input-password"
                               />
                             </div>
@@ -402,25 +545,30 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                     {error && (
                       <div className="text-sm text-destructive" data-testid="text-error">{error}</div>
                     )}
-                    <Button
+                    <button
                       type="submit"
-                      className="w-full"
                       disabled={signupMutation.isPending}
+                      className="w-full py-2.5 rounded-lg text-sm font-semibold text-white transition-colors"
+                      style={{ background: signupMutation.isPending ? "#2C5282" : "#2B6CB0" }}
                       data-testid="button-signup"
                     >
                       {signupMutation.isPending ? "Creating account..." : "Sign Up"}
-                    </Button>
+                    </button>
                   </form>
                 </Form>
               )}
 
-              <div className="mt-4 text-center text-sm">
+              <div
+                className="mt-4 pt-4 text-center text-sm"
+                style={{ borderTop: "1px solid rgba(99, 179, 237, 0.1)" }}
+              >
                 {authView === "login" ? (
                   <>
-                    <span className="text-muted-foreground">Don't have an account? </span>
+                    <span style={{ color: "#718096" }}>Don't have an account? </span>
                     <button
                       onClick={() => { setAuthView("signup"); setError(""); }}
-                      className="text-primary hover-elevate"
+                      className="font-medium"
+                      style={{ color: "#63B3ED" }}
                       data-testid="link-signup"
                     >
                       Sign up
@@ -428,10 +576,11 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                   </>
                 ) : (
                   <>
-                    <span className="text-muted-foreground">Already have an account? </span>
+                    <span style={{ color: "#718096" }}>Already have an account? </span>
                     <button
                       onClick={() => { setAuthView("login"); setError(""); }}
-                      className="text-primary hover-elevate"
+                      className="font-medium"
+                      style={{ color: "#63B3ED" }}
                       data-testid="link-login"
                     >
                       Log in
@@ -439,12 +588,12 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                   </>
                 )}
               </div>
-            </CardContent>
-          </Card>
+
+              {showCookie && <CookieCard onDismiss={() => setShowCookie(false)} />}
+            </div>
+          </div>
         </div>
       </div>
-
-      {showCookie && <CookieCard onDismiss={() => setShowCookie(false)} />}
     </div>
   );
 }
