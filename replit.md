@@ -44,7 +44,28 @@ The Liquid Encrypted Data System is a security platform that utilizes quantum-re
 - **Org Context Middleware**: `requireOrgContext` validates `X-Organization-Id` header and membership; `requireAuth` extracts org from header or JWT
 - **Frontend**: Org switcher in sidebar, persisted via localStorage, included in all API requests as `X-Organization-Id` header
 - **Routes**: `server/org-routes.ts` — full CRUD for orgs + member management (POST/GET/PATCH orgs, POST/GET/DELETE members)
-- **Zero Proofs Nav**: Collapsible accordion in sidebar with Commitments, Verify, Proof History items; disabled unless `VITE_NOIR_ENABLED=true`
+- **Zero Proofs Nav**: Collapsible accordion in sidebar with Commitments, Verify, Proof History items; enabled when `VITE_NOIR_ENABLED=true`
+
+### Zero Knowledge Proofs (Phase 2)
+- **Feature Flag**: `NOIR_ENABLED=true` (backend) + `VITE_NOIR_ENABLED=true` (frontend)
+- **Packages**: `@noir-lang/noir_js@0.36.0`, `@noir-lang/backend_barretenberg@0.36.0`
+- **Tables**: `commitment_records`, `proof_requests`, `proof_results`, `proof_usage` — all org-scoped
+- **Proof Service** (`server/proof-service.ts`): Commitment generation (SHA-256), proof generation, proof verification. Salt truncated to 31 bytes (62 hex chars) for BN254 field constraint.
+- **Proof Config** (`server/proof-config.ts`): Default TTL 72hrs, threshold 1-100, tier limits (personal: 10/mo, business: 100/mo, enterprise: unlimited), beta mode enabled
+- **API Routes** (`server/proof-routes.ts`):
+  - `POST /api/proofs/commitments` — Create commitment (document ownership enforced)
+  - `GET /api/proofs/commitments` — List org commitments
+  - `POST /api/proofs/generate` — Generate proof from commitment
+  - `POST /api/proofs/verify` — Verify proof (authenticated)
+  - `POST /api/proofs/verify/public` — Public verify (status only, no auth)
+  - `GET /api/proofs/usage/current` — Current billing period usage
+  - `GET /api/proofs` — List org proofs
+  - `GET /api/proofs/:id` — Get proof detail
+- **Frontend Pages**:
+  - `PrivacyVault.tsx` — Create commitments + generate proofs
+  - `VerifyProof.tsx` — Verify proof validity (authenticated + public modes)
+  - `AuditProofs.tsx` — Proof history with usage stats
+- **Security**: Document ownership check on commitment creation, org-scoped access control, proofHex never exposed in frontend, rate limiting planned for public verify
 
 ### Feature Specifications
 - Document upload with automatic fragmentation and encryption.

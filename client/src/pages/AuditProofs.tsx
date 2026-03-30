@@ -1,0 +1,191 @@
+import { useQuery } from "@tanstack/react-query";
+import { KeyRound, Loader2, CheckCircle2, XCircle, Clock, BarChart3 } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+
+interface AuditProofsProps {
+  onNavigate: (page: string) => void;
+}
+
+interface Proof {
+  id: string;
+  verified: boolean;
+  publicInputsHash: string;
+  ttlHours: number;
+  expiresAt: string;
+  createdAt: string;
+  expired: boolean;
+}
+
+interface ProofUsage {
+  proofsGenerated: number;
+  proofsVerified: number;
+  billingPeriodStart: string;
+  billingPeriodEnd: string;
+}
+
+function formatDate(iso: string): string {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function getTimeRemaining(expiresAt: string): string {
+  const diff = new Date(expiresAt).getTime() - Date.now();
+  if (diff <= 0) return "Expired";
+  const hours = Math.floor(diff / (1000 * 60 * 60));
+  const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours > 24) {
+    const days = Math.floor(hours / 24);
+    return `${days}d ${hours % 24}h remaining`;
+  }
+  return `${hours}h ${minutes}m remaining`;
+}
+
+export default function AuditProofs({ onNavigate }: AuditProofsProps) {
+  const { data: proofsData, isLoading: proofsLoading } = useQuery<{ proofs: Proof[] }>({
+    queryKey: ["/api/proofs"],
+  });
+
+  const { data: usageData, isLoading: usageLoading } = useQuery<{ usage: ProofUsage }>({
+    queryKey: ["/api/proofs/usage/current"],
+  });
+
+  const proofs = proofsData?.proofs || [];
+  const usage = usageData?.usage;
+
+  const verifiedCount = proofs.filter((p) => p.verified).length;
+  const expiredCount = proofs.filter((p) => p.expired).length;
+  const activeCount = proofs.filter((p) => !p.expired && p.verified).length;
+
+  return (
+    <div className="space-y-8" data-testid="audit-proofs-page">
+      <div>
+        <h1 className="text-2xl font-semibold tracking-tight" data-testid="text-page-title">Proof History</h1>
+        <p className="text-muted-foreground mt-1">
+          View all generated proofs, their status, and usage metrics for the current billing period.
+        </p>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Total Proofs</CardTitle>
+            <KeyRound className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-total-proofs">
+              {proofsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : proofs.length}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Verified</CardTitle>
+            <CheckCircle2 className="w-4 h-4 text-green-600 dark:text-green-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-verified-count">
+              {proofsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : verifiedCount}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Active</CardTitle>
+            <Clock className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-active-count">
+              {proofsLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : activeCount}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-1 space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">This Period</CardTitle>
+            <BarChart3 className="w-4 h-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold" data-testid="text-period-generated">
+              {usageLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (usage?.proofsGenerated || 0)}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {usage ? `${usage.proofsVerified || 0} verified` : ""}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Proof Ledger</CardTitle>
+          <CardDescription>
+            Chronological record of all zero-knowledge proofs generated by your organization.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {proofsLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : proofs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <KeyRound className="w-12 h-12 mb-4 opacity-30" />
+              <p className="text-sm">No proofs generated yet.</p>
+              <p className="text-xs mt-1">Go to Privacy Vault to create your first proof.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {proofs.map((proof) => (
+                <div
+                  key={proof.id}
+                  className="flex items-center justify-between gap-4 p-3 rounded-md border"
+                  data-testid={`proof-row-${proof.id}`}
+                >
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    {proof.verified ? (
+                      <CheckCircle2 className="w-5 h-5 shrink-0 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <XCircle className="w-5 h-5 shrink-0 text-red-600 dark:text-red-400" />
+                    )}
+                    <div className="min-w-0">
+                      <p className="font-mono text-xs truncate" data-testid={`text-proof-hash-${proof.id}`}>
+                        {proof.publicInputsHash}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {formatDate(proof.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    {proof.expired ? (
+                      <Badge variant="outline" className="text-amber-600 dark:text-amber-400" data-testid={`badge-expired-${proof.id}`}>
+                        Expired
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs" data-testid={`badge-ttl-${proof.id}`}>
+                        {getTimeRemaining(proof.expiresAt)}
+                      </Badge>
+                    )}
+                    <Badge variant={proof.verified ? "default" : "destructive"} data-testid={`badge-status-${proof.id}`}>
+                      {proof.verified ? "Passed" : "Failed"}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

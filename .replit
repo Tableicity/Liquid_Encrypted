@@ -46,3 +46,5 @@ integrations = ["javascript_mem_db:1.0.0", "javascript_openai:1.0.0", "javascrip
 [userenv.shared]
 SUPER_ADMIN_EMAIL = "abc17@gmail.com"
 SUPER_ADMIN_PASSWORD = "Whereisdad@1"
+NOIR_ENABLED = "true"
+VITE_NOIR_ENABLED = "true"

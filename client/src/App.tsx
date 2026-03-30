@@ -59,8 +59,11 @@ import Subscribe from "@/pages/Subscribe";
 import Billing from "@/pages/Billing";
 import Profile from "@/pages/Profile";
 import CreateOrganization from "@/pages/CreateOrganization";
+import PrivacyVault from "@/pages/PrivacyVault";
+import VerifyProof from "@/pages/VerifyProof";
+import AuditProofs from "@/pages/AuditProofs";
 
-type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing" | "profile" | "create-org";
+type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing" | "profile" | "create-org" | "privacy-vault" | "verify-proof" | "audit-proofs";
 type AuthView = "login" | "signup";
 
 interface OrgResponse {
@@ -313,21 +316,36 @@ function AppContent() {
                       <CollapsibleContent>
                         <SidebarMenu className="pl-4">
                           <SidebarMenuItem>
-                            <SidebarMenuButton disabled={!NOIR_ENABLED} data-testid="nav-zkp-commitments">
+                            <SidebarMenuButton
+                              disabled={!NOIR_ENABLED}
+                              onClick={() => NOIR_ENABLED && setCurrentPage("privacy-vault")}
+                              isActive={currentPage === "privacy-vault"}
+                              data-testid="nav-zkp-commitments"
+                            >
                               <Lock className="w-4 h-4" />
                               <span>Commitments</span>
                               {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
                             </SidebarMenuButton>
                           </SidebarMenuItem>
                           <SidebarMenuItem>
-                            <SidebarMenuButton disabled={!NOIR_ENABLED} data-testid="nav-zkp-verify">
+                            <SidebarMenuButton
+                              disabled={!NOIR_ENABLED}
+                              onClick={() => NOIR_ENABLED && setCurrentPage("verify-proof")}
+                              isActive={currentPage === "verify-proof"}
+                              data-testid="nav-zkp-verify"
+                            >
                               <Fingerprint className="w-4 h-4" />
                               <span>Verify</span>
                               {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
                             </SidebarMenuButton>
                           </SidebarMenuItem>
                           <SidebarMenuItem>
-                            <SidebarMenuButton disabled={!NOIR_ENABLED} data-testid="nav-zkp-proofs">
+                            <SidebarMenuButton
+                              disabled={!NOIR_ENABLED}
+                              onClick={() => NOIR_ENABLED && setCurrentPage("audit-proofs")}
+                              isActive={currentPage === "audit-proofs"}
+                              data-testid="nav-zkp-proofs"
+                            >
                               <KeyRound className="w-4 h-4" />
                               <span>Proof History</span>
                               {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
@@ -389,6 +407,15 @@ function AppContent() {
                     onNavigate={(page) => setCurrentPage(page as Page)}
                     onOrgCreated={handleOrgCreated}
                   />
+                )}
+                {currentPage === "privacy-vault" && (
+                  <PrivacyVault onNavigate={(page) => setCurrentPage(page as Page)} />
+                )}
+                {currentPage === "verify-proof" && (
+                  <VerifyProof onNavigate={(page) => setCurrentPage(page as Page)} />
+                )}
+                {currentPage === "audit-proofs" && (
+                  <AuditProofs onNavigate={(page) => setCurrentPage(page as Page)} />
                 )}
               </main>
             </div>
