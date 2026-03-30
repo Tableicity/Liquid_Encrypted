@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { ShieldCheck, FileText, Loader2, CheckCircle2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import SecurityRitualProgress from "@/components/SecurityRitualProgress";
 import type { Document } from "@shared/schema";
 
 interface PrivacyVaultProps {
@@ -63,6 +64,7 @@ export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
   const [authenticityScore, setAuthenticityScore] = useState<number>(85);
   const [threshold, setThreshold] = useState<number[]>([70]);
   const [selectedCommitmentId, setSelectedCommitmentId] = useState<string>("");
+  const [ritualActive, setRitualActive] = useState(false);
   const { toast } = useToast();
 
   const { data: documents = [], isLoading: docsLoading } = useQuery<Document[]>({
@@ -102,6 +104,7 @@ export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
 
   const generateProofMutation = useMutation({
     mutationFn: async () => {
+      setRitualActive(true);
       const res = await apiRequest("POST", "/api/proofs/generate", {
         commitmentId: selectedCommitmentId,
         threshold: threshold[0],
@@ -120,6 +123,7 @@ export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
       queryClient.invalidateQueries({ queryKey: ["/api/proofs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/proofs/usage/current"] });
       setSelectedCommitmentId("");
+      setRitualActive(false);
     },
     onError: (error: Error) => {
       toast({
@@ -127,8 +131,12 @@ export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
         description: error.message,
         variant: "destructive",
       });
+      setRitualActive(false);
     },
   });
+
+  const handleRitualComplete = useCallback(() => {
+  }, []);
 
   const liquidDocs = documents.filter((d) => d.status === "liquified");
 
@@ -272,21 +280,21 @@ export default function PrivacyVault({ onNavigate }: PrivacyVaultProps) {
               </p>
             </div>
 
-            <Button
-              onClick={() => generateProofMutation.mutate()}
-              disabled={!selectedCommitmentId || generateProofMutation.isPending}
-              className="w-full"
-              data-testid="button-generate-proof"
-            >
-              {generateProofMutation.isPending ? (
-                <span className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating...
-                </span>
-              ) : (
-                "Generate Proof"
-              )}
-            </Button>
+            {ritualActive || generateProofMutation.isPending ? (
+              <SecurityRitualProgress
+                isActive={ritualActive || generateProofMutation.isPending}
+                onComplete={handleRitualComplete}
+              />
+            ) : (
+              <Button
+                onClick={() => generateProofMutation.mutate()}
+                disabled={!selectedCommitmentId}
+                className="w-full"
+                data-testid="button-generate-proof"
+              >
+                Generate Proof
+              </Button>
+            )}
           </CardContent>
         </Card>
       </div>

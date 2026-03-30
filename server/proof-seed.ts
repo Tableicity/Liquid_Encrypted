@@ -78,8 +78,9 @@ export async function seedSandboxProofs() {
           70
         );
 
+        const SEED_TTL_HOURS = 8760;
         const expiresAt = new Date();
-        expiresAt.setHours(expiresAt.getHours() + PROOF_CONFIG.defaultTtlHours);
+        expiresAt.setHours(expiresAt.getHours() + SEED_TTL_HOURS);
 
         await storage.createProofResult({
           proofRequestId: proofRequest.id,
@@ -88,7 +89,7 @@ export async function seedSandboxProofs() {
           verificationKey: result.verificationKey,
           verified: result.verified,
           publicInputsHash: result.publicInputsHash,
-          ttlHours: PROOF_CONFIG.defaultTtlHours,
+          ttlHours: SEED_TTL_HOURS,
           expiresAt,
         });
 
