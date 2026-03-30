@@ -6,3 +6,9 @@ id = "cAFIUroyLFT7rZ8m5yrEy"
 uri = "file://John/To Do.md"
 type = "text"
 title = "SNARK-to-STARK Quantum Resistance Upgrade — To Do"
+
+[[outputs]]
+id = "xnIG-eg-3EE8NfJgq2Tjk"
+uri = "file://John/Liquid_Open_ai_Grok.md"
+type = "text"
+title = "Liquid Encrypt: Dual-LLM Architecture — OpenAI + Grok"
