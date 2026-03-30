@@ -1,3 +1,5 @@
+import { randomBytes } from "crypto";
+
 export const NOIR_ENABLED = process.env.NOIR_ENABLED === "true";
 
 export const PROOF_CONFIG = {
@@ -35,7 +37,6 @@ export function truncateSalt(salt: string): string {
 }
 
 export function generateSalt(): string {
-  const crypto = require("crypto");
-  const rawSalt = crypto.randomBytes(PROOF_CONFIG.saltLengthBytes).toString("hex");
+  const rawSalt = randomBytes(PROOF_CONFIG.saltLengthBytes).toString("hex");
   return truncateSalt(rawSalt);
 }
