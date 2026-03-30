@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "cAFIUroyLFT7rZ8m5yrEy"
+uri = "file://John/To Do.md"
+type = "text"
+title = "SNARK-to-STARK Quantum Resistance Upgrade — To Do"
