@@ -36,13 +36,24 @@ The Liquid Encrypted Data System is a security platform that utilizes quantum-re
 - **Horizontal Privilege Escalation Prevention**: Enforced document ownership checks.
 - **Storage Quota Enforcement**: Byte-precise quota tracking using dual-field architecture (usedBytes/quotaBytes for enforcement, usedGb/allocatedGb for display) eliminates ~5MB rounding errors. Automatic grace period management with 7-day enforcement windows. When users exceed their storage quota, the system creates a grace period that automatically expires 7 days later. Pre-upload middleware enforces three-tier checks (under quota, within grace period, expired grace period). Atomic storage operations protect against concurrent upload race conditions. Includes support for warning email tracking and status management (active/resolved/expired).
 
+### Multi-Tenant Organization Layer
+- **Organization Types**: `sandbox` (auto-created on signup) and `production` (user-initiated)
+- **Tables**: `organizations` (id, name, slug, type, ownerId, settings) and `organization_members` (id, orgId, userId, role, joinedAt, invitedBy)
+- **Org-scoped Fields**: `organizationId` added as nullable FK to documents, subscriptions, storageUsage, gracePeriods, payments, auditLogs
+- **Startup Backfill**: Idempotent bootstrap creates sandbox orgs for existing users without organizations on every server start
+- **Org Context Middleware**: `requireOrgContext` validates `X-Organization-Id` header and membership; `requireAuth` extracts org from header or JWT
+- **Frontend**: Org switcher in sidebar, persisted via localStorage, included in all API requests as `X-Organization-Id` header
+- **Routes**: `server/org-routes.ts` — full CRUD for orgs + member management (POST/GET/PATCH orgs, POST/GET/DELETE members)
+- **Zero Proofs Nav**: Collapsible accordion in sidebar with Commitments, Verify, Proof History items; disabled unless `VITE_NOIR_ENABLED=true`
+
 ### Feature Specifications
 - Document upload with automatic fragmentation and encryption.
 - Secure document retrieval and reconstitution.
-- User signup/login with JWT.
+- User signup/login with JWT (includes organizationId in token).
 - Subscription plan selection and payment processing via Stripe.
 - Admin console for user, role, subscription, and audit log management.
 - Owner bootstrap functionality via environment variables.
+- Organization management: create production orgs, switch between orgs, manage members.
 
 ### System Design Choices
 - **Data Persistence**: PostgreSQL for robust and permanent data storage.

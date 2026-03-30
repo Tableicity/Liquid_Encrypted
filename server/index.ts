@@ -192,10 +192,53 @@ async function bootstrapSuperAdminAccount() {
   }
 }
 
+async function backfillOrganizations() {
+  try {
+    const usersWithoutOrgs = await storage.getUsersWithoutOrganization();
+    if (usersWithoutOrgs.length === 0) {
+      console.log("[Org Backfill] All users have organizations.");
+      return;
+    }
+
+    console.log(`[Org Backfill] Found ${usersWithoutOrgs.length} user(s) without organizations. Creating sandbox orgs...`);
+
+    for (const user of usersWithoutOrgs) {
+      const emailPrefix = user.email.split("@")[0];
+      const slug = `sandbox-${emailPrefix}-${Date.now()}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+
+      const sandboxOrg = await storage.createOrganization({
+        name: `${user.email}'s Sandbox`,
+        slug,
+        type: "sandbox",
+        ownerId: user.id,
+      });
+
+      await storage.createOrganizationMember({
+        organizationId: sandboxOrg.id,
+        userId: user.id,
+        role: "owner",
+      });
+
+      for (const table of ["documents", "subscriptions", "storage_usage", "grace_periods", "payments", "audit_logs"]) {
+        await storage.backfillOrganizationId(table, user.id, sandboxOrg.id);
+      }
+
+      console.log(`[Org Backfill] Created sandbox org for ${user.email} (${sandboxOrg.id})`);
+    }
+
+    console.log(`[Org Backfill] Backfill complete.`);
+  } catch (error) {
+    console.error("[Org Backfill] Error during backfill:", error);
+  }
+}
+
 (async () => {
   // Bootstrap privileged accounts before registering routes
   await bootstrapOwnerAccount();
   await bootstrapSuperAdminAccount();
+  
+  // Backfill organizations for existing users
+  await backfillOrganizations();
   
   const server = await registerRoutes(app);
 

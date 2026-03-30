@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, decimal, inet, bigint } from "drizzle-orm/pg-core";
+import { pgTable, varchar, integer, timestamp, text, boolean, jsonb, decimal, inet, bigint, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 
@@ -19,6 +19,31 @@ export const users = pgTable("users", {
   lastLogin: timestamp("last_login"),
   metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
 });
+
+// Organizations - Multi-tenant scoping
+export const organizations = pgTable("organizations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: varchar("name", { length: 255 }).notNull(),
+  slug: varchar("slug", { length: 100 }).notNull().unique(),
+  type: varchar("type", { length: 20 }).notNull().default("sandbox"),
+  ownerId: varchar("owner_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  stripeCustomerId: varchar("stripe_customer_id", { length: 255 }),
+  settings: jsonb("settings").default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// Organization Members - Maps users to organizations with roles
+export const organizationMembers = pgTable("organization_members", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  role: varchar("role", { length: 50 }).notNull().default("member"),
+  joinedAt: timestamp("joined_at").notNull().defaultNow(),
+  invitedBy: varchar("invited_by", { length: 255 }).references(() => users.id),
+}, (table) => [
+  uniqueIndex("org_member_unique").on(table.organizationId, table.userId),
+]);
 
 // Subscription Plans (3-tier pricing)
 export const subscriptionPlans = pgTable("subscription_plans", {
@@ -45,6 +70,7 @@ export const subscriptionPlans = pgTable("subscription_plans", {
 export const subscriptions = pgTable("subscriptions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id, { onDelete: "cascade" }),
   planId: varchar("plan_id", { length: 255 }).notNull().references(() => subscriptionPlans.id),
   billingCycle: varchar("billing_cycle", { length: 20 }).notNull().default("monthly"),
   basePrice: decimal("base_price", { precision: 10, scale: 2 }).notNull(),
@@ -65,6 +91,7 @@ export const subscriptions = pgTable("subscriptions", {
 export const storageUsage = pgTable("storage_usage", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 255 }).notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id, { onDelete: "cascade" }),
   subscriptionId: varchar("subscription_id", { length: 255 }).references(() => subscriptions.id, { onDelete: "cascade" }),
   
   // Byte-precise fields (source of truth for quota enforcement)
@@ -82,10 +109,11 @@ export const storageUsage = pgTable("storage_usage", {
 export const gracePeriods = pgTable("grace_periods", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id, { onDelete: "cascade" }),
   quotaExceededAt: timestamp("quota_exceeded_at").notNull().defaultNow(),
   gracePeriodEnd: timestamp("grace_period_end").notNull(),
   warningEmailsSent: integer("warning_emails_sent").default(0),
-  status: varchar("status", { length: 20 }).notNull().default("active"), // 'active', 'resolved', 'expired'
+  status: varchar("status", { length: 20 }).notNull().default("active"),
   resolvedAt: timestamp("resolved_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
@@ -95,7 +123,7 @@ export const gracePeriods = pgTable("grace_periods", {
 export const quotaWarnings = pgTable("quota_warnings", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
-  warningLevel: varchar("warning_level", { length: 20 }).notNull(), // 'warning_80', 'warning_90', 'warning_95'
+  warningLevel: varchar("warning_level", { length: 20 }).notNull(),
   sentAt: timestamp("sent_at").notNull().defaultNow(),
   emailCount: integer("email_count").notNull().default(1),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -106,6 +134,7 @@ export const quotaWarnings = pgTable("quota_warnings", {
 export const payments = pgTable("payments", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 255 }).references(() => users.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id, { onDelete: "cascade" }),
   subscriptionId: varchar("subscription_id", { length: 255 }).references(() => subscriptions.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   currency: varchar("currency", { length: 3 }).default("USD"),
@@ -127,6 +156,7 @@ export const auditLogs = pgTable("audit_logs", {
   // Legacy fields (backward compatibility)
   userId: varchar("user_id", { length: 255 }).references(() => users.id),
   adminId: varchar("admin_id", { length: 255 }).references(() => users.id),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id, { onDelete: "cascade" }),
   status: varchar("status", { length: 50 }),
   details: jsonb("details").default(sql`'{}'::jsonb`),
   
@@ -159,10 +189,11 @@ export const auditLogs = pgTable("audit_logs", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Documents (updated with user_id)
+// Documents (with org scoping)
 export const documents = pgTable("documents", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id", { length: 255 }).references(() => users.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id", { length: 255 }).references(() => organizations.id, { onDelete: "cascade" }),
   name: varchar("name", { length: 255 }).notNull(),
   size: integer("size").notNull(),
   status: varchar("status", { length: 50 }).notNull().default("liquid"),
@@ -204,6 +235,12 @@ export const chatSessions = pgTable("chat_sessions", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
+export type Organization = typeof organizations.$inferSelect;
+export type InsertOrganization = typeof organizations.$inferInsert;
+
+export type OrganizationMember = typeof organizationMembers.$inferSelect;
+export type InsertOrganizationMember = typeof organizationMembers.$inferInsert;
+
 export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
 export type InsertSubscriptionPlan = typeof subscriptionPlans.$inferInsert;
 
@@ -220,7 +257,7 @@ export type InsertQuotaWarning = typeof quotaWarnings.$inferInsert;
 
 // Reduced input type for grace period creation (gracePeriodEnd is auto-calculated)
 export type CreateGracePeriodParams = Omit<InsertGracePeriod, "gracePeriodEnd" | "status" | "resolvedAt"> & {
-  gracePeriodEnd?: Date; // Optional override, defaults to quotaExceededAt + 7 days
+  gracePeriodEnd?: Date;
 };
 
 export type Payment = typeof payments.$inferSelect;
@@ -242,6 +279,7 @@ export type InsertChatSession = typeof chatSessions.$inferInsert;
 export interface DocumentPublic {
   id: string;
   userId?: string;
+  organizationId?: string;
   name: string;
   size: number;
   status: string;
@@ -261,8 +299,19 @@ export interface UserPublic {
   createdAt: string;
 }
 
+export interface OrganizationPublic {
+  id: string;
+  name: string;
+  slug: string;
+  type: string;
+  ownerId: string;
+  createdAt: string;
+}
+
 // Zod Validation Schemas
 export const insertUserSchema = createInsertSchema(users).omit({ id: true, createdAt: true });
+export const insertOrganizationSchema = createInsertSchema(organizations).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertOrganizationMemberSchema = createInsertSchema(organizationMembers).omit({ id: true, joinedAt: true });
 export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertSubscriptionSchema = createInsertSchema(subscriptions).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertStorageUsageSchema = createInsertSchema(storageUsage).omit({ id: true, lastCalculated: true });
@@ -291,6 +340,12 @@ export const chatMessageSchema = z.object({
   message: z.string().min(1),
 });
 
+export const createOrganizationSchema = z.object({
+  name: z.string().min(2).max(255),
+  slug: z.string().min(2).max(100).regex(/^[a-z0-9-]+$/, "Slug must contain only lowercase letters, numbers, and hyphens"),
+});
+
 export type SignupData = z.infer<typeof signupSchema>;
 export type LoginData = z.infer<typeof loginSchema>;
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
+export type CreateOrganizationData = z.infer<typeof createOrganizationSchema>;

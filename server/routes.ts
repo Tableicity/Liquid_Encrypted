@@ -10,6 +10,7 @@ import { StripeService, stripe } from "./stripe-service";
 import { requireAuth, requireRole, hasPermission, assertDocumentAccess, type AuthRequest } from "./middleware";
 import { checkStorageQuota, checkGracePeriodResolution } from "./middleware/quotaCheck";
 import { registerAdminRoutes } from "./admin-routes";
+import { registerOrgRoutes } from "./org-routes";
 import { 
   insertDocumentSchema, 
   chatMessageSchema, 
@@ -127,14 +128,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.createUser({
         email: data.email,
         passwordHash,
-        role: "customer", // Default role for new signups
+        role: "customer",
+      });
+
+      // Auto-create sandbox organization
+      const emailPrefix = data.email.split("@")[0];
+      const slug = `sandbox-${emailPrefix}-${Date.now()}`.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+      const sandboxOrg = await storage.createOrganization({
+        name: `${data.email}'s Sandbox`,
+        slug,
+        type: "sandbox",
+        ownerId: user.id,
+      });
+
+      // Add user as org owner
+      await storage.createOrganizationMember({
+        organizationId: sandboxOrg.id,
+        userId: user.id,
+        role: "owner",
       });
 
       // Create default storage usage record (byte-precise)
       await storage.createStorageUsage({
         userId: user.id,
+        organizationId: sandboxOrg.id,
         usedBytes: 0,
-        quotaBytes: 0, // No storage until they subscribe
+        quotaBytes: 0,
         allocatedGb: 0,
         usedGb: "0",
         documentCount: 0,
@@ -146,7 +165,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           userId: user.id, 
           email: user.email,
           role: user.role,
-          permissions: user.permissions || {}
+          permissions: user.permissions || {},
+          organizationId: sandboxOrg.id,
         },
         JWT_SECRET,
         { expiresIn: "30d" }
@@ -163,7 +183,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         userAgent: req.headers["user-agent"],
         metadata: { 
           fullName: data.fullName,
-          companyName: data.companyName 
+          companyName: data.companyName,
+          sandboxOrgId: sandboxOrg.id,
         },
       });
 
@@ -173,6 +194,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           id: user.id,
           email: user.email,
           role: user.role,
+        },
+        organization: {
+          id: sandboxOrg.id,
+          name: sandboxOrg.name,
+          slug: sandboxOrg.slug,
+          type: sandboxOrg.type,
         },
       });
     } catch (error) {
@@ -205,13 +232,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(401).json({ error: "Invalid email or password" });
       }
 
+      // Get user's default organization (sandbox)
+      const sandboxOrg = await storage.getSandboxOrgByUserId(user.id);
+      const userOrgs = await storage.getOrganizationsByUserId(user.id);
+      const defaultOrg = sandboxOrg || userOrgs[0];
+
       // Generate JWT token (expires in 30 days)
       const token = jwt.sign(
         { 
           userId: user.id, 
           email: user.email,
           role: user.role,
-          permissions: user.permissions || {}
+          permissions: user.permissions || {},
+          organizationId: defaultOrg?.id || null,
         },
         JWT_SECRET,
         { expiresIn: "30d" }
@@ -227,6 +260,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: user.email,
           role: user.role,
         },
+        organization: defaultOrg ? {
+          id: defaultOrg.id,
+          name: defaultOrg.name,
+          slug: defaultOrg.slug,
+          type: defaultOrg.type,
+        } : null,
       });
     } catch (error) {
       if (error instanceof ZodError) {
@@ -1140,6 +1179,9 @@ Keep responses concise and professional. After 1-2 exchanges, decide whether to 
       res.status(500).json({ error: "Failed to process message" });
     }
   });
+
+  // ========== Organization Routes ==========
+  registerOrgRoutes(app);
 
   // ========== Admin Routes ==========
   registerAdminRoutes(app);

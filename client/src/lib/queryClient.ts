@@ -1,5 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
-import { getToken } from "./auth";
+import { getToken, getActiveOrgId } from "./auth";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -13,6 +13,10 @@ function getAuthHeaders(): Record<string, string> {
   const headers: Record<string, string> = {};
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
+  }
+  const orgId = getActiveOrgId();
+  if (orgId) {
+    headers["X-Organization-Id"] = orgId;
   }
   return headers;
 }

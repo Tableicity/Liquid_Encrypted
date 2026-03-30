@@ -2,6 +2,8 @@ import type {
   Document, Fragment, ChatSession, 
   InsertDocument, InsertFragment,
   User, InsertUser,
+  Organization, InsertOrganization,
+  OrganizationMember, InsertOrganizationMember,
   Subscription, InsertSubscription,
   SubscriptionPlan,
   StorageUsage, InsertStorageUsage,
@@ -11,12 +13,13 @@ import type {
   QuotaWarning
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, and, desc, sql as drizzleSql } from "drizzle-orm";
+import { eq, and, desc, sql as drizzleSql, isNull } from "drizzle-orm";
 import postgres from "postgres";
 import { 
   documents, fragments, chatSessions, 
   users, subscriptions, subscriptionPlans,
-  storageUsage, gracePeriods, payments, auditLogs, quotaWarnings
+  storageUsage, gracePeriods, payments, auditLogs, quotaWarnings,
+  organizations, organizationMembers
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -93,6 +96,24 @@ export interface IStorage {
   getRecentQuotaWarning(userId: string, warningLevel: string, withinDays: number): Promise<QuotaWarning | undefined>;
   getUsersAtThreshold(thresholdPercent: number): Promise<Array<{ userId: string; usedBytes: number; quotaBytes: number; user: User }>>;
   getActiveGracePeriods(): Promise<Array<GracePeriod & { user: User }>>;
+
+  // Organization operations
+  createOrganization(org: InsertOrganization): Promise<Organization>;
+  getOrganization(id: string): Promise<Organization | undefined>;
+  getOrganizationBySlug(slug: string): Promise<Organization | undefined>;
+  getOrganizationsByUserId(userId: string): Promise<Organization[]>;
+  updateOrganization(id: string, updates: Partial<Organization>): Promise<Organization | undefined>;
+  getSandboxOrgByUserId(userId: string): Promise<Organization | undefined>;
+
+  // Organization Member operations
+  createOrganizationMember(member: InsertOrganizationMember): Promise<OrganizationMember>;
+  getOrganizationMembers(organizationId: string): Promise<(OrganizationMember & { user: User })[]>;
+  getOrganizationMember(organizationId: string, userId: string): Promise<OrganizationMember | undefined>;
+  removeOrganizationMember(organizationId: string, userId: string): Promise<boolean>;
+
+  // Backfill helper
+  getUsersWithoutOrganization(): Promise<User[]>;
+  backfillOrganizationId(tableName: string, userId: string, organizationId: string): Promise<void>;
 }
 
 const client = postgres(process.env.DATABASE_URL!);
@@ -639,6 +660,128 @@ export class PostgresStorage implements IStorage {
       }
     }
     return results;
+  }
+
+  // Organization operations
+  async createOrganization(org: InsertOrganization): Promise<Organization> {
+    const id = randomUUID();
+    const result = await db
+      .insert(organizations)
+      .values({ id, ...org })
+      .returning();
+    return result[0];
+  }
+
+  async getOrganization(id: string): Promise<Organization | undefined> {
+    const result = await db.select().from(organizations).where(eq(organizations.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getOrganizationBySlug(slug: string): Promise<Organization | undefined> {
+    const result = await db.select().from(organizations).where(eq(organizations.slug, slug)).limit(1);
+    return result[0];
+  }
+
+  async getOrganizationsByUserId(userId: string): Promise<Organization[]> {
+    const memberships = await db
+      .select({ organizationId: organizationMembers.organizationId })
+      .from(organizationMembers)
+      .where(eq(organizationMembers.userId, userId));
+
+    if (memberships.length === 0) return [];
+
+    const orgIds = memberships.map(m => m.organizationId);
+    const orgs = [];
+    for (const orgId of orgIds) {
+      const org = await this.getOrganization(orgId);
+      if (org) orgs.push(org);
+    }
+    return orgs;
+  }
+
+  async updateOrganization(id: string, updates: Partial<Organization>): Promise<Organization | undefined> {
+    const result = await db
+      .update(organizations)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(organizations.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async getSandboxOrgByUserId(userId: string): Promise<Organization | undefined> {
+    const result = await db
+      .select()
+      .from(organizations)
+      .where(and(eq(organizations.ownerId, userId), eq(organizations.type, "sandbox")))
+      .limit(1);
+    return result[0];
+  }
+
+  // Organization Member operations
+  async createOrganizationMember(member: InsertOrganizationMember): Promise<OrganizationMember> {
+    const id = randomUUID();
+    const result = await db
+      .insert(organizationMembers)
+      .values({ id, ...member })
+      .returning();
+    return result[0];
+  }
+
+  async getOrganizationMembers(organizationId: string): Promise<(OrganizationMember & { user: User })[]> {
+    const members = await db
+      .select()
+      .from(organizationMembers)
+      .where(eq(organizationMembers.organizationId, organizationId));
+
+    const results = [];
+    for (const member of members) {
+      const user = await this.getUser(member.userId);
+      if (user) {
+        results.push({ ...member, user });
+      }
+    }
+    return results;
+  }
+
+  async getOrganizationMember(organizationId: string, userId: string): Promise<OrganizationMember | undefined> {
+    const result = await db
+      .select()
+      .from(organizationMembers)
+      .where(and(
+        eq(organizationMembers.organizationId, organizationId),
+        eq(organizationMembers.userId, userId)
+      ))
+      .limit(1);
+    return result[0];
+  }
+
+  async removeOrganizationMember(organizationId: string, userId: string): Promise<boolean> {
+    const result = await db
+      .delete(organizationMembers)
+      .where(and(
+        eq(organizationMembers.organizationId, organizationId),
+        eq(organizationMembers.userId, userId)
+      ))
+      .returning();
+    return result.length > 0;
+  }
+
+  // Backfill helpers
+  async getUsersWithoutOrganization(): Promise<User[]> {
+    const allUsers = await db.select().from(users);
+    const usersWithOrgs = await db
+      .select({ userId: organizationMembers.userId })
+      .from(organizationMembers);
+    const userIdsWithOrgs = new Set(usersWithOrgs.map(u => u.userId));
+    return allUsers.filter(u => !userIdsWithOrgs.has(u.id));
+  }
+
+  async backfillOrganizationId(tableName: string, userId: string, organizationId: string): Promise<void> {
+    await db.execute(drizzleSql`
+      UPDATE ${drizzleSql.raw(tableName)} 
+      SET organization_id = ${organizationId} 
+      WHERE user_id = ${userId} AND organization_id IS NULL
+    `);
   }
 }
 

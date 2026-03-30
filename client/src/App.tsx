@@ -11,14 +11,43 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
-import { Home, Upload as UploadIcon, FileText, BookOpen, LogOut, Loader2, CreditCard, User } from "lucide-react";
-import { isAuthenticated, removeToken } from "@/lib/auth";
+import {
+  Home,
+  Upload as UploadIcon,
+  FileText,
+  BookOpen,
+  LogOut,
+  Loader2,
+  CreditCard,
+  User,
+  Building2,
+  Plus,
+  ShieldCheck,
+  ChevronRight,
+  Lock,
+  Fingerprint,
+  KeyRound,
+} from "lucide-react";
+import { isAuthenticated, removeToken, getActiveOrgId, setActiveOrgId as persistActiveOrgId } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import Dashboard from "@/pages/Dashboard";
 import UploadPage from "@/pages/Upload";
@@ -29,9 +58,21 @@ import Signup from "@/pages/Signup";
 import Subscribe from "@/pages/Subscribe";
 import Billing from "@/pages/Billing";
 import Profile from "@/pages/Profile";
+import CreateOrganization from "@/pages/CreateOrganization";
 
-type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing" | "profile";
+type Page = "dashboard" | "upload" | "documents" | "architecture" | "billing" | "profile" | "create-org";
 type AuthView = "login" | "signup";
+
+interface OrgResponse {
+  organizations: Array<{
+    id: string;
+    name: string;
+    slug: string;
+    type: string;
+    ownerId: string;
+    createdAt: string;
+  }>;
+}
 
 interface SubscriptionResponse {
   subscription: {
@@ -40,29 +81,33 @@ interface SubscriptionResponse {
   } | null;
 }
 
+const NOIR_ENABLED = import.meta.env.VITE_NOIR_ENABLED === "true";
+
 function AppContent() {
   const [authenticated, setAuthenticated] = useState(false);
   const [authView, setAuthView] = useState<AuthView>("login");
   const [currentPage, setCurrentPage] = useState<Page>("dashboard");
   const [needsSubscription, setNeedsSubscription] = useState(false);
+  const [activeOrgId, setActiveOrgIdState] = useState<string>(getActiveOrgId() || "");
+  const [zkpOpen, setZkpOpen] = useState(false);
   const { toast } = useToast();
+
+  const setActiveOrgId = (id: string) => {
+    setActiveOrgIdState(id);
+    persistActiveOrgId(id);
+    queryClient.invalidateQueries();
+  };
 
   useEffect(() => {
     setAuthenticated(isAuthenticated());
-    
-    // Check for payment success redirect from Stripe
+
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.get('payment') === 'success' && isAuthenticated()) {
-      // Clear the query parameter
       window.history.replaceState({}, '', window.location.pathname);
-      
-      // Show success toast
       toast({
         title: "Payment Successful",
         description: "Your subscription is now active!",
       });
-      
-      // Mark subscription as complete
       setNeedsSubscription(false);
       queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
     }
@@ -73,16 +118,30 @@ function AppContent() {
     enabled: authenticated,
     retry: false,
   });
-  
+
+  const { data: orgsData } = useQuery<OrgResponse>({
+    queryKey: ["/api/organizations"],
+    enabled: authenticated,
+  });
+
+  const organizations = orgsData?.organizations || [];
+  const activeOrg = organizations.find(o => o.id === activeOrgId) || organizations[0];
+
+  useEffect(() => {
+    if (organizations.length > 0 && !activeOrgId) {
+      const sandbox = organizations.find(o => o.type === "sandbox");
+      const orgId = sandbox?.id || organizations[0].id;
+      setActiveOrgIdState(orgId);
+      persistActiveOrgId(orgId);
+    }
+  }, [organizations, activeOrgId]);
+
   const subscription = subscriptionData?.subscription;
 
-  // Handle invalid/expired token
   useEffect(() => {
     if (subscriptionError && authenticated) {
-      // Check if it's a 401 error
       const errorMessage = (subscriptionError as any)?.message || '';
       if (errorMessage.includes('401') || errorMessage.includes('Unauthorized') || errorMessage.includes('Invalid or expired token')) {
-        // Token is invalid, clear it and show login
         removeToken();
         setAuthenticated(false);
         setNeedsSubscription(false);
@@ -98,8 +157,8 @@ function AppContent() {
 
   const handleLogin = () => {
     setAuthenticated(true);
-    // Invalidate subscription query to force fresh check
     queryClient.invalidateQueries({ queryKey: ["/api/subscriptions/current"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
   };
 
   const handleSubscriptionComplete = () => {
@@ -111,7 +170,14 @@ function AppContent() {
     removeToken();
     setAuthenticated(false);
     setNeedsSubscription(false);
+    setActiveOrgIdState("");
     queryClient.clear();
+  };
+
+  const handleOrgCreated = (org: { id: string; name: string; slug: string; type: string }) => {
+    setActiveOrgId(org.id);
+    queryClient.invalidateQueries({ queryKey: ["/api/organizations"] });
+    setCurrentPage("dashboard");
   };
 
   const menuItems = [
@@ -124,11 +190,10 @@ function AppContent() {
   ];
 
   const style = {
-    "--sidebar-width": "16rem",
+    "--sidebar-width": "17rem",
     "--sidebar-width-icon": "3rem",
   };
 
-  // Show loading state while checking subscription
   if (authenticated && subscriptionLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -137,8 +202,6 @@ function AppContent() {
     );
   }
 
-  // Determine if user needs to subscribe
-  // Show subscription page if user has no subscription or subscription is not active
   const hasActiveSubscription = subscription && subscription.status === "active";
   const showSubscriptionPage = authenticated && !subscriptionLoading && !hasActiveSubscription;
 
@@ -170,6 +233,49 @@ function AppContent() {
                       Quantum-Resistant Security
                     </p>
                   </div>
+
+                  {organizations.length > 0 && (
+                    <div className="px-3 pb-3">
+                      <Select value={activeOrgId} onValueChange={setActiveOrgId}>
+                        <SelectTrigger
+                          className="w-full"
+                          data-testid="select-org-switcher"
+                        >
+                          <div className="flex items-center gap-2 truncate">
+                            <Building2 className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
+                            <SelectValue placeholder="Select organization" />
+                          </div>
+                        </SelectTrigger>
+                        <SelectContent>
+                          {organizations.map((org) => (
+                            <SelectItem
+                              key={org.id}
+                              value={org.id}
+                              data-testid={`select-org-${org.slug}`}
+                            >
+                              <span className="truncate">{org.name}</span>
+                              {org.type === "sandbox" && (
+                                <span className="ml-2 text-xs text-muted-foreground">(sandbox)</span>
+                              )}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="w-full mt-1 justify-start text-muted-foreground"
+                        onClick={() => setCurrentPage("create-org")}
+                        data-testid="button-create-org-nav"
+                      >
+                        <Plus className="w-3.5 h-3.5 mr-2" />
+                        New Organization
+                      </Button>
+                    </div>
+                  )}
+
+                  <div className="mx-3 my-2 h-px bg-border" />
+
                   <SidebarGroupContent>
                     <SidebarMenu>
                       {menuItems.map((item) => (
@@ -186,6 +292,57 @@ function AppContent() {
                       ))}
                     </SidebarMenu>
                   </SidebarGroupContent>
+
+                  <div className="mx-3 my-2 h-px bg-border" />
+
+                  <SidebarGroupLabel className="px-4 text-xs text-muted-foreground uppercase tracking-wider">
+                    Advanced
+                  </SidebarGroupLabel>
+                  <SidebarGroupContent>
+                    <Collapsible open={zkpOpen} onOpenChange={setZkpOpen}>
+                      <CollapsibleTrigger asChild>
+                        <SidebarMenuButton
+                          className="w-full"
+                          data-testid="nav-zero-proofs"
+                        >
+                          <ShieldCheck className="w-4 h-4" />
+                          <span className="flex-1 text-left">Zero Proofs</span>
+                          <ChevronRight className={`w-3.5 h-3.5 transition-transform ${zkpOpen ? "rotate-90" : ""}`} />
+                        </SidebarMenuButton>
+                      </CollapsibleTrigger>
+                      <CollapsibleContent>
+                        <SidebarMenu className="pl-4">
+                          <SidebarMenuItem>
+                            <SidebarMenuButton disabled={!NOIR_ENABLED} data-testid="nav-zkp-commitments">
+                              <Lock className="w-4 h-4" />
+                              <span>Commitments</span>
+                              {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton disabled={!NOIR_ENABLED} data-testid="nav-zkp-verify">
+                              <Fingerprint className="w-4 h-4" />
+                              <span>Verify</span>
+                              {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                          <SidebarMenuItem>
+                            <SidebarMenuButton disabled={!NOIR_ENABLED} data-testid="nav-zkp-proofs">
+                              <KeyRound className="w-4 h-4" />
+                              <span>Proof History</span>
+                              {!NOIR_ENABLED && <Lock className="w-3 h-3 ml-auto text-muted-foreground" />}
+                            </SidebarMenuButton>
+                          </SidebarMenuItem>
+                        </SidebarMenu>
+                        {!NOIR_ENABLED && (
+                          <p className="px-4 py-2 text-xs text-muted-foreground">
+                            Zero Knowledge Proofs will be available when Noir integration is enabled.
+                          </p>
+                        )}
+                      </CollapsibleContent>
+                    </Collapsible>
+                  </SidebarGroupContent>
+
                   <div className="mt-auto p-4">
                     <Button
                       variant="ghost"
@@ -202,8 +359,15 @@ function AppContent() {
             </Sidebar>
 
             <div className="flex flex-col flex-1 overflow-hidden">
-              <header className="flex items-center justify-between p-4 border-b border-border">
-                <SidebarTrigger data-testid="button-sidebar-toggle" />
+              <header className="flex items-center justify-between gap-2 p-4 border-b border-border">
+                <div className="flex items-center gap-2">
+                  <SidebarTrigger data-testid="button-sidebar-toggle" />
+                  {activeOrg && (
+                    <span className="text-sm text-muted-foreground hidden sm:inline" data-testid="text-active-org">
+                      {activeOrg.name}
+                    </span>
+                  )}
+                </div>
                 <ThemeToggle />
               </header>
 
@@ -220,6 +384,12 @@ function AppContent() {
                 )}
                 {currentPage === "billing" && <Billing />}
                 {currentPage === "profile" && <Profile />}
+                {currentPage === "create-org" && (
+                  <CreateOrganization
+                    onNavigate={(page) => setCurrentPage(page as Page)}
+                    onOrgCreated={handleOrgCreated}
+                  />
+                )}
               </main>
             </div>
           </div>

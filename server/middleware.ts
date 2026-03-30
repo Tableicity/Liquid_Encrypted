@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
-import { IStorage } from "./storage";
+import { IStorage, storage } from "./storage";
 import type { Document } from "@shared/schema";
 import { createAuditLog } from "./utils/auditLog";
 
@@ -12,6 +12,7 @@ export interface AuthRequest extends Request {
   userEmail?: string;
   userRole?: string;
   userPermissions?: Record<string, any>;
+  organizationId?: string;
 }
 
 /**
@@ -36,6 +37,7 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
       email: string;
       role?: string;
       permissions?: Record<string, any>;
+      organizationId?: string;
     };
     
     req.userId = decoded.userId;
@@ -43,6 +45,10 @@ export function requireAuth(req: AuthRequest, res: Response, next: NextFunction)
     // Normalize legacy "user" role to "customer" for backward compatibility
     req.userRole = (decoded.role === "user" ? "customer" : decoded.role) || "customer";
     req.userPermissions = decoded.permissions || {};
+
+    // Organization context: prefer header, fall back to JWT
+    const headerOrgId = req.headers["x-organization-id"] as string | undefined;
+    req.organizationId = headerOrgId || decoded.organizationId || undefined;
     
     next();
   } catch (error) {
@@ -238,4 +244,20 @@ export async function assertDocumentAccess(
   }
   
   return true;
+}
+
+export function requireOrgContext(req: AuthRequest, res: Response, next: NextFunction) {
+  if (!req.organizationId) {
+    return res.status(400).json({ error: "Organization context required. Set X-Organization-Id header." });
+  }
+
+  storage.getOrganizationMember(req.organizationId, req.userId!).then(member => {
+    if (!member) {
+      return res.status(403).json({ error: "Not a member of this organization" });
+    }
+    next();
+  }).catch(error => {
+    console.error("Error checking org membership:", error);
+    res.status(500).json({ error: "Failed to verify organization membership" });
+  });
 }
