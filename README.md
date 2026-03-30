@@ -17,6 +17,13 @@ Documents exist in three states:
 
 ## Key Features
 
+### Split-Panel Landing Experience
+- **Marketing Showcase**: Dark navy left panel with auto-rotating beast image slideshow and security feature highlights
+- **Glass-Morphism Login**: Right panel with app peek-through background, dark navy overlay, and frosted-glass login card
+- **Cookie Gateway**: Privacy consent overlay positioned on the login card with dual-action buttons
+- **Free Trial Label**: Green "Start a Free Trial" indicator for future 1-Day Pass integration
+- **Mobile Responsive**: Left panel hidden on mobile, full-screen login experience with brand header
+
 ### Security Architecture
 - **Quantum-Resistant Encryption**: AES-256-CBC with double encryption (file-level + fragment-level)
 - **Data Fragmentation**: Documents split into 8 encrypted pieces distributed across nodes
@@ -54,6 +61,8 @@ Documents exist in three states:
 - **Org-Scoped Data**: Documents, subscriptions, proofs, and audit logs scoped per org
 
 ### Subscription Management
+- **No-Gate Entry**: Users land directly in the dashboard after signup — no forced subscription page
+- **Sidebar Access**: Subscription plans accessible from the "Subscription" sidebar navigation item
 - **Personal Plan**: $19.99/mo - 100 documents, 10GB storage
 - **Business Plan**: $99.99/mo - Unlimited documents, 100GB storage
 - **Enterprise Plan**: $999.99/mo - Unlimited everything, priority support
@@ -145,7 +154,9 @@ Liquid_Encrypted/
 │   │   │   ├── ChatInterface.tsx   # AI story authentication
 │   │   │   └── ui/                 # Shadcn/ui components
 │   │   ├── pages/            # Page components
+│   │   │   ├── LandingPage.tsx     # Split-panel marketing + auth
 │   │   │   ├── Documents.tsx       # Document management
+│   │   │   ├── Subscribe.tsx       # Subscription plan selection
 │   │   │   ├── PrivacyVault.tsx    # ZKP commitments & proofs
 │   │   │   ├── VerifyProof.tsx     # Proof verification
 │   │   │   └── AuditProofs.tsx     # Proof history
