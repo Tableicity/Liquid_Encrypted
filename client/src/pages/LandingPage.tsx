@@ -358,7 +358,7 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
 
         <div
           className="absolute inset-0 overflow-y-auto flex items-center justify-center p-6"
-          style={{ zIndex: 3 }}
+          style={{ zIndex: 3, paddingTop: "8vh" }}
         >
           <div className="w-full max-w-[420px] relative">
             <div
