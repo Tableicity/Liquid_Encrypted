@@ -10,7 +10,11 @@ import type {
   GracePeriod, InsertGracePeriod, CreateGracePeriodParams,
   Payment, InsertPayment,
   AuditLog, InsertAuditLog,
-  QuotaWarning
+  QuotaWarning,
+  CommitmentRecord, InsertCommitmentRecord,
+  ProofRequest, InsertProofRequest,
+  ProofResult, InsertProofResult,
+  ProofUsage, InsertProofUsage
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/postgres-js";
 import { eq, and, desc, sql as drizzleSql, isNull } from "drizzle-orm";
@@ -19,7 +23,8 @@ import {
   documents, fragments, chatSessions, 
   users, subscriptions, subscriptionPlans,
   storageUsage, gracePeriods, payments, auditLogs, quotaWarnings,
-  organizations, organizationMembers
+  organizations, organizationMembers,
+  commitmentRecords, proofRequests, proofResults, proofUsage
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 
@@ -114,6 +119,29 @@ export interface IStorage {
   // Backfill helper
   getUsersWithoutOrganization(): Promise<User[]>;
   backfillOrganizationId(tableName: string, userId: string, organizationId: string): Promise<void>;
+
+  // ZKP - Commitment operations
+  createCommitment(commitment: InsertCommitmentRecord): Promise<CommitmentRecord>;
+  getCommitment(id: string): Promise<CommitmentRecord | undefined>;
+  getCommitmentsByOrg(organizationId: string): Promise<CommitmentRecord[]>;
+  getCommitmentsByDocument(documentId: string): Promise<CommitmentRecord[]>;
+
+  // ZKP - Proof Request operations
+  createProofRequest(request: InsertProofRequest): Promise<ProofRequest>;
+  getProofRequest(id: string): Promise<ProofRequest | undefined>;
+  updateProofRequest(id: string, updates: Partial<ProofRequest>): Promise<ProofRequest | undefined>;
+  getProofRequestsByOrg(organizationId: string, limit?: number): Promise<ProofRequest[]>;
+
+  // ZKP - Proof Result operations
+  createProofResult(result: InsertProofResult): Promise<ProofResult>;
+  getProofResult(id: string): Promise<ProofResult | undefined>;
+  getProofResultByRequest(proofRequestId: string): Promise<ProofResult | undefined>;
+  getProofResultsByOrg(organizationId: string, limit?: number): Promise<ProofResult[]>;
+
+  // ZKP - Usage tracking
+  getOrCreateProofUsage(organizationId: string, periodStart: Date, periodEnd: Date): Promise<ProofUsage>;
+  incrementProofUsage(id: string, field: "proofsGenerated" | "proofsVerified"): Promise<ProofUsage | undefined>;
+  getProofUsageByOrg(organizationId: string): Promise<ProofUsage[]>;
 }
 
 const client = postgres(process.env.DATABASE_URL!);
@@ -782,6 +810,121 @@ export class PostgresStorage implements IStorage {
       SET organization_id = ${organizationId} 
       WHERE user_id = ${userId} AND organization_id IS NULL
     `);
+  }
+
+  // ZKP - Commitment operations
+  async createCommitment(commitment: InsertCommitmentRecord): Promise<CommitmentRecord> {
+    const id = randomUUID();
+    const result = await db.insert(commitmentRecords).values({ id, ...commitment }).returning();
+    return result[0];
+  }
+
+  async getCommitment(id: string): Promise<CommitmentRecord | undefined> {
+    const result = await db.select().from(commitmentRecords).where(eq(commitmentRecords.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getCommitmentsByOrg(organizationId: string): Promise<CommitmentRecord[]> {
+    return db.select().from(commitmentRecords)
+      .where(eq(commitmentRecords.organizationId, organizationId))
+      .orderBy(desc(commitmentRecords.createdAt));
+  }
+
+  async getCommitmentsByDocument(documentId: string): Promise<CommitmentRecord[]> {
+    return db.select().from(commitmentRecords)
+      .where(eq(commitmentRecords.documentId, documentId))
+      .orderBy(desc(commitmentRecords.createdAt));
+  }
+
+  // ZKP - Proof Request operations
+  async createProofRequest(request: InsertProofRequest): Promise<ProofRequest> {
+    const id = randomUUID();
+    const result = await db.insert(proofRequests).values({ id, ...request }).returning();
+    return result[0];
+  }
+
+  async getProofRequest(id: string): Promise<ProofRequest | undefined> {
+    const result = await db.select().from(proofRequests).where(eq(proofRequests.id, id)).limit(1);
+    return result[0];
+  }
+
+  async updateProofRequest(id: string, updates: Partial<ProofRequest>): Promise<ProofRequest | undefined> {
+    const result = await db.update(proofRequests).set(updates).where(eq(proofRequests.id, id)).returning();
+    return result[0];
+  }
+
+  async getProofRequestsByOrg(organizationId: string, limit = 50): Promise<ProofRequest[]> {
+    return db.select().from(proofRequests)
+      .where(eq(proofRequests.organizationId, organizationId))
+      .orderBy(desc(proofRequests.createdAt))
+      .limit(limit);
+  }
+
+  // ZKP - Proof Result operations
+  async createProofResult(result: InsertProofResult): Promise<ProofResult> {
+    const id = randomUUID();
+    const res = await db.insert(proofResults).values({ id, ...result }).returning();
+    return res[0];
+  }
+
+  async getProofResult(id: string): Promise<ProofResult | undefined> {
+    const result = await db.select().from(proofResults).where(eq(proofResults.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getProofResultByRequest(proofRequestId: string): Promise<ProofResult | undefined> {
+    const result = await db.select().from(proofResults)
+      .where(eq(proofResults.proofRequestId, proofRequestId))
+      .limit(1);
+    return result[0];
+  }
+
+  async getProofResultsByOrg(organizationId: string, limit = 50): Promise<ProofResult[]> {
+    return db.select().from(proofResults)
+      .where(eq(proofResults.organizationId, organizationId))
+      .orderBy(desc(proofResults.createdAt))
+      .limit(limit);
+  }
+
+  // ZKP - Usage tracking
+  async getOrCreateProofUsage(organizationId: string, periodStart: Date, periodEnd: Date): Promise<ProofUsage> {
+    const existing = await db.select().from(proofUsage)
+      .where(and(
+        eq(proofUsage.organizationId, organizationId),
+        eq(proofUsage.billingPeriodStart, periodStart)
+      ))
+      .limit(1);
+
+    if (existing[0]) return existing[0];
+
+    const id = randomUUID();
+    const result = await db.insert(proofUsage).values({
+      id,
+      organizationId,
+      billingPeriodStart: periodStart,
+      billingPeriodEnd: periodEnd,
+      proofsGenerated: 0,
+      proofsVerified: 0,
+    }).returning();
+    return result[0];
+  }
+
+  async incrementProofUsage(id: string, field: "proofsGenerated" | "proofsVerified"): Promise<ProofUsage | undefined> {
+    const column = field === "proofsGenerated" ? proofUsage.proofsGenerated : proofUsage.proofsVerified;
+    const result = await db.update(proofUsage)
+      .set({
+        [field]: drizzleSql`${column} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(proofUsage.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async getProofUsageByOrg(organizationId: string): Promise<ProofUsage[]> {
+    return db.select().from(proofUsage)
+      .where(eq(proofUsage.organizationId, organizationId))
+      .orderBy(desc(proofUsage.billingPeriodStart));
   }
 }
 

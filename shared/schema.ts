@@ -288,6 +288,67 @@ export interface DocumentPublic {
   uploadedAt: string;
 }
 
+// ========== Zero Knowledge Proof Tables (Phase 2) ==========
+
+export const commitmentRecords = pgTable("commitment_records", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  documentId: varchar("document_id", { length: 255 }).references(() => documents.id, { onDelete: "set null" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  commitmentHash: varchar("commitment_hash", { length: 255 }).notNull(),
+  salt: varchar("salt", { length: 62 }).notNull(),
+  authenticityScore: integer("authenticity_score").notNull(),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at"),
+});
+
+export const proofRequests = pgTable("proof_requests", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  userId: varchar("user_id", { length: 255 }).notNull().references(() => users.id, { onDelete: "cascade" }),
+  commitmentId: varchar("commitment_id", { length: 255 }).notNull().references(() => commitmentRecords.id, { onDelete: "cascade" }),
+  status: varchar("status", { length: 50 }).notNull().default("pending"),
+  threshold: integer("threshold").notNull().default(70),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+  errorMessage: text("error_message"),
+});
+
+export const proofResults = pgTable("proof_results", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  proofRequestId: varchar("proof_request_id", { length: 255 }).notNull().references(() => proofRequests.id, { onDelete: "cascade" }),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  proofHex: text("proof_hex").notNull(),
+  verificationKey: text("verification_key").notNull(),
+  verified: boolean("verified").notNull().default(false),
+  publicInputsHash: varchar("public_inputs_hash", { length: 255 }),
+  ttlHours: integer("ttl_hours").notNull().default(72),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+});
+
+export const proofUsage = pgTable("proof_usage", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  organizationId: varchar("organization_id", { length: 255 }).notNull().references(() => organizations.id, { onDelete: "cascade" }),
+  billingPeriodStart: timestamp("billing_period_start").notNull(),
+  billingPeriodEnd: timestamp("billing_period_end").notNull(),
+  proofsGenerated: integer("proofs_generated").notNull().default(0),
+  proofsVerified: integer("proofs_verified").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+// ZKP Types
+export type CommitmentRecord = typeof commitmentRecords.$inferSelect;
+export type InsertCommitmentRecord = typeof commitmentRecords.$inferInsert;
+export type ProofRequest = typeof proofRequests.$inferSelect;
+export type InsertProofRequest = typeof proofRequests.$inferInsert;
+export type ProofResult = typeof proofResults.$inferSelect;
+export type InsertProofResult = typeof proofResults.$inferInsert;
+export type ProofUsage = typeof proofUsage.$inferSelect;
+export type InsertProofUsage = typeof proofUsage.$inferInsert;
+
 export interface UserPublic {
   id: string;
   email: string;
@@ -320,6 +381,10 @@ export const insertPaymentSchema = createInsertSchema(payments).omit({ id: true,
 export const insertAuditLogSchema = createInsertSchema(auditLogs).omit({ id: true, createdAt: true });
 export const insertDocumentSchema = createInsertSchema(documents).omit({ id: true, uploadedAt: true });
 export const insertFragmentSchema = createInsertSchema(fragments).omit({ id: true, createdAt: true, lastVerified: true });
+export const insertCommitmentRecordSchema = createInsertSchema(commitmentRecords).omit({ id: true, createdAt: true });
+export const insertProofRequestSchema = createInsertSchema(proofRequests).omit({ id: true, createdAt: true, completedAt: true, errorMessage: true });
+export const insertProofResultSchema = createInsertSchema(proofResults).omit({ id: true, createdAt: true });
+export const insertProofUsageSchema = createInsertSchema(proofUsage).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Custom validation schemas
 export const signupSchema = z.object({

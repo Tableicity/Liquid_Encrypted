@@ -11,6 +11,7 @@ import { requireAuth, requireRole, hasPermission, assertDocumentAccess, type Aut
 import { checkStorageQuota, checkGracePeriodResolution } from "./middleware/quotaCheck";
 import { registerAdminRoutes } from "./admin-routes";
 import { registerOrgRoutes } from "./org-routes";
+import { registerProofRoutes } from "./proof-routes";
 import { 
   insertDocumentSchema, 
   chatMessageSchema, 
@@ -1185,6 +1186,9 @@ Keep responses concise and professional. After 1-2 exchanges, decide whether to 
 
   // ========== Admin Routes ==========
   registerAdminRoutes(app);
+
+  // ========== ZKP Proof Routes ==========
+  registerProofRoutes(app);
 
   const httpServer = createServer(app);
 
