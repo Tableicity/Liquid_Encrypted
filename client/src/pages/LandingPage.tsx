@@ -16,7 +16,7 @@ import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { setToken } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
-import { Lock, Mail, User, Shield, Cpu, Database, ChevronLeft, ChevronRight, Check } from "lucide-react";
+import { Lock, Mail, User, Shield, Cpu, Database, ChevronLeft, ChevronRight, Check, FileStack } from "lucide-react";
 import beast01 from "@assets/beast-01-hash-wall.png";
 import beast02 from "@assets/beast-02-code-vault.png";
 import beast07 from "@assets/beast-07-lock-shield.png";
@@ -60,7 +60,7 @@ function CookieCard({ onDismiss }: { onDismiss: () => void }) {
     <div
       className="absolute z-[10]"
       style={{
-        top: "150px",
+        top: "130px",
         left: "50%",
         transform: "translateX(-50%)",
         width: "87%",
@@ -303,6 +303,10 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                   "Zero Knowledge Proof commitments",
                   "Grok document intelligence",
                   "Multi-tenant organization support",
+                  "HMAC-SHA256 tamper-proof audit logs",
+                  "5-tier role-based access control",
+                  "Byte-precise storage quota enforcement",
+                  "Stripe subscription billing",
                 ].map((item) => (
                   <div key={item} className="flex items-center gap-2">
                     <Check className="w-3.5 h-3.5 text-green-400 shrink-0" />
@@ -359,32 +363,45 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
         >
           <div className="w-full max-w-[420px] relative">
             <div
-              className="rounded-2xl p-8 relative"
+              className="rounded-2xl p-8 pb-6 relative"
               style={{
                 background: "rgba(13, 20, 35, 0.92)",
                 border: "1px solid rgba(99, 179, 237, 0.2)",
                 boxShadow: "0 25px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(99,179,237,0.08)",
                 backdropFilter: "blur(20px)",
                 WebkitBackdropFilter: "blur(20px)",
+                minHeight: "550px",
               }}
             >
-              <div className="mb-6">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <h2 className="text-[22px] font-bold text-white">
-                    {authView === "login" ? "Sign In" : "Create Account"}
-                  </h2>
-                  <span
-                    className="text-xs font-medium cursor-default select-none"
-                    style={{ color: "#48BB78" }}
-                    data-testid="label-free-trial"
+              <div className="mb-6 text-center">
+                <div className="flex items-center justify-center gap-3 mb-3">
+                  <div
+                    className="w-10 h-10 rounded-lg flex items-center justify-center"
+                    style={{
+                      background: "rgba(99, 179, 237, 0.15)",
+                      border: "1px solid rgba(99, 179, 237, 0.3)",
+                    }}
+                    data-testid="icon-logo"
                   >
-                    Start a Free Trial
+                    <FileStack className="w-5 h-5" style={{ color: "#63B3ED" }} />
+                  </div>
+                  <span
+                    className="text-xs font-bold px-2.5 py-1 rounded-md select-none"
+                    style={{
+                      color: "#D69E2E",
+                      background: "rgba(214, 158, 46, 0.15)",
+                      border: "1px solid rgba(214, 158, 46, 0.4)",
+                    }}
+                    data-testid="badge-beta"
+                  >
+                    Beta 1.01
                   </span>
                 </div>
-                <p className="text-[13px] mt-1" style={{ color: "#718096" }}>
-                  {authView === "login"
-                    ? "Access your encrypted documents"
-                    : "Get started with quantum-resistant security"}
+                <h2 className="text-xl font-bold tracking-wide text-white uppercase" data-testid="text-brand-title">
+                  Liquid Encryption
+                </h2>
+                <p className="text-[13px] mt-1" style={{ color: "#63B3ED" }} data-testid="text-brand-subtitle">
+                  Quantum-Resistant
                 </p>
               </div>
 
@@ -571,7 +588,7 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                       style={{ color: "#63B3ED" }}
                       data-testid="link-signup"
                     >
-                      Sign up
+                      Create one
                     </button>
                   </>
                 ) : (
@@ -587,6 +604,17 @@ export default function LandingPage({ onSuccess }: LandingPageProps) {
                     </button>
                   </>
                 )}
+              </div>
+
+              <div className="mt-3 text-center">
+                <span style={{ color: "#718096" }} className="text-sm">Or </span>
+                <span
+                  className="text-sm font-medium cursor-default select-none"
+                  style={{ color: "#48BB78" }}
+                  data-testid="label-free-trial"
+                >
+                  Start a Free Trial
+                </span>
               </div>
 
               {showCookie && <CookieCard onDismiss={() => setShowCookie(false)} />}
