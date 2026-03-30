@@ -4,6 +4,7 @@ import { requireAuth, requireOrgContext, type AuthRequest } from "./middleware";
 import { proofService } from "./proof-service";
 import { NOIR_ENABLED, PROOF_CONFIG } from "./proof-config";
 import { createAuditLog } from "./utils/auditLog";
+import { requireProofAccess, publicVerifyRateLimit } from "./proof-middleware";
 
 export function registerProofRoutes(app: Express) {
   if (!NOIR_ENABLED) {
@@ -89,9 +90,9 @@ export function registerProofRoutes(app: Express) {
     }
   });
 
-  app.post("/api/proofs/generate", requireAuth, requireOrgContext, generateProofHandler);
+  app.post("/api/proofs/generate", requireAuth, requireOrgContext, requireProofAccess, generateProofHandler);
   app.post("/api/proofs/verify", requireAuth, requireOrgContext, verifyProofHandler);
-  app.post("/api/proofs/verify/public", publicVerifyHandler);
+  app.post("/api/proofs/verify/public", publicVerifyRateLimit, publicVerifyHandler);
   app.get("/api/proofs/usage/current", requireAuth, requireOrgContext, usageHandler);
   app.get("/api/proofs", requireAuth, requireOrgContext, listProofsHandler);
   app.get("/api/proofs/:id", requireAuth, requireOrgContext, getProofHandler);

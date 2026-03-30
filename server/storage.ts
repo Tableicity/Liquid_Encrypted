@@ -897,16 +897,27 @@ export class PostgresStorage implements IStorage {
 
     if (existing[0]) return existing[0];
 
-    const id = randomUUID();
-    const result = await db.insert(proofUsage).values({
-      id,
-      organizationId,
-      billingPeriodStart: periodStart,
-      billingPeriodEnd: periodEnd,
-      proofsGenerated: 0,
-      proofsVerified: 0,
-    }).returning();
-    return result[0];
+    try {
+      const id = randomUUID();
+      const result = await db.insert(proofUsage).values({
+        id,
+        organizationId,
+        billingPeriodStart: periodStart,
+        billingPeriodEnd: periodEnd,
+        proofsGenerated: 0,
+        proofsVerified: 0,
+      }).returning();
+      return result[0];
+    } catch (insertError: any) {
+      const retry = await db.select().from(proofUsage)
+        .where(and(
+          eq(proofUsage.organizationId, organizationId),
+          eq(proofUsage.billingPeriodStart, periodStart)
+        ))
+        .limit(1);
+      if (retry[0]) return retry[0];
+      throw insertError;
+    }
   }
 
   async incrementProofUsage(id: string, field: "proofsGenerated" | "proofsVerified"): Promise<ProofUsage | undefined> {

@@ -239,6 +239,10 @@ async function backfillOrganizations() {
   
   // Backfill organizations for existing users
   await backfillOrganizations();
+
+  // Seed sandbox ZKP demo data
+  const { seedSandboxProofs } = await import("./proof-seed");
+  await seedSandboxProofs();
   
   const server = await registerRoutes(app);
 
